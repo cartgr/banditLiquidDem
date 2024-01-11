@@ -32,4 +32,12 @@
         - train ensemble on increment (training after evaluation because if we had the labels to train on, there would be no sense in evaluating/predicting)
         - delegate
 
+### Metric Example
+In these plots we demonstrate the performance of a single classifier. In the plot on the left we formalize the performance as the accuracy over all examples seen so far.
+In the plot on the right we formalize the performance as the accuracy over the last $n$ examples seen (sliding window).
+
 ![metric graphs](readme_plots.jpg)
+
+In the graph on the left we see that the magnitude of the change in performance is much smaller because it is an average over all examples seen so far and thus each new example has a smaller effect on the average.
+
+As for the graph on the right, we can imagine that each point (e.g. x = 100) is the average of the last $n$ examples (e.g. examples 70-100 for $n=30$). Then when we compare the $y$ values of two points that are, say, $30$ x-units appart, we are comparing the two windows of size $n$ that are $30$ examples appart (these are two non-overlapping contiguous windows). If the second value is smaller than the first, then we have some evidence that the performance is decreasing. If we want more evidence for a trend we could compare multiple windows of size $n$ that are $i$ examples appart. If the performance is increase we should expect these values to be monotonically increasing. If the performance is decreasing we should expect these values to be monotonically decreasing.
