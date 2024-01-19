@@ -53,8 +53,6 @@ class Experiment():
         for ensemble in self.ensembles:
             ensemble.initialize_voters()
 
-
-
         """
         My current thought is to essentially train and test incrementally with opportunity for delegation in each of those.
         Then the delegation mechanism for that ensemble may or may not do any delegation during training/testing.
@@ -74,71 +72,87 @@ class Experiment():
                 # Train on a batch of data
                 ensemble.learn_batch(images, labels)
 
-                # Delegate
-                ensemble.update_delegations(train=True)
-
-                # Record performance
+                # Record performance - do this before any delegation so there's at least some data
                 train_acc = ensemble.score(images, labels)
-                self.add_batch_metric_value(trial_num, "batch_train_acc", train_acc)
+                self.add_batch_metric_value(ensemble, trial_num, "batch_train_acc", train_acc)
+
+                # Delegate
+                train_acc_history = self.get_batch_metric_value(ensemble=ensemble, trial_num=trial_num, metric_name="batch_train_acc")
+                ensemble.update_delegations(accs=train_acc_history, train=True)
         print("Finished training. Starting testing.")
 
     
         # 3 - Test each ensemble on each increment of data, as applicable.
+        # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
         for images, labels in self.test_data_loader:
             for ensemble in self.ensembles:
 
-                # Train on a batch of data
-                ensemble.learn_batch(images, labels)
-
-                # Delegate
-                ensemble.update_delegations(train=True)
+                # # Train on a batch of data -- probably shouldn't during testing?
+                # ensemble.learn_batch(images, labels)
 
                 # Record performance
                 test_acc = ensemble.score(images, labels)
-                self.add_batch_metric_value(trial_num, "batch_test_acc", test_acc)
+                self.add_batch_metric_value(ensemble, trial_num, "batch_test_acc", test_acc)
+
+                # Delegate
+                test_acc_history = self.get_batch_metric_value(ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc")
+                ensemble.update_delegations(accs=test_acc_history, train=False)
             
         
         print(self.batch_metric_values)
-
-    
-        # # 3 - Measure performance of each ensemble.
-        # for ensemble in self.ensembles:
-        #     # record test accuracy and other metrics
-
-        #     UCBs_over_time, liquid_dem_proba_accs, liquid_dem_vote_accs, liquid_dem_weighted_vote_accs, full_ensemble_accs = ensemble.calculate_test_accuracy()
-        #     # test_acc = ensemble.calculate_test_accuracy()
-        #     print(f"Ensemble had test_acc={liquid_dem_weighted_vote_accs}")
-        #     self.metric_values["test_accuracy"].append(liquid_dem_weighted_vote_accs)
         
         return self.batch_metric_values
 
 
-    def add_batch_metric_value(self, trial_num, metric_name, metric_value):
+    def add_batch_metric_value(self, ensemble, trial_num, metric_name, metric_value):
         """
         Record the value of some metric that has a value at each individual batch/increment of learning.
         e.g. train/test accuracy, number of gurus, guru weights, etc.
 
+        Store metrics in, arguably, too many layers of dicts: metric_values[ensemble.name][trial_num][metric_name] = metric_value
         Args:
+            ensemble (_type_): _description_
             trial_num (_type_): _description_
             metric_name (_type_): _description_
             metric_value (_type_): _description_
         """
-        if trial_num not in self.batch_metric_values:
-            self.batch_metric_values[trial_num] = dict()
-            if metric_name not in self.batch_metric_values[trial_num]:
-                self.batch_metric_values[trial_num][metric_name] = []
-        elif metric_name not in self.batch_metric_values[trial_num]:
-            self.batch_metric_values[trial_num][metric_name] = []
+        if ensemble.name not in self.batch_metric_values:
+            self.batch_metric_values[ensemble.name] = dict()
+        if trial_num not in self.batch_metric_values[ensemble.name]:
+            self.batch_metric_values[ensemble.name][trial_num] = dict()
+        if metric_name not in self.batch_metric_values[ensemble.name][trial_num]:
+            self.batch_metric_values[ensemble.name][trial_num][metric_name] = []
         
-        self.batch_metric_values[trial_num][metric_name].append(metric_value)
+        self.batch_metric_values[ensemble.name][trial_num][metric_name].append(metric_value)
+
+    def get_batch_metric_value(self, ensemble, trial_num, metric_name):
+        """
+        Get all values of some metric stored by an ensemble.
+
+        Store metrics in, arguably, too many layers of dicts: metric_values[ensemble.name][trial_num][metric_name] = metric_value
+        Args:
+            ensemble (_type_): _description_
+            trial_num (_type_): _description_
+            metric_name (_type_): _description_
+        """
+        value = []
+        if ensemble.name not in self.batch_metric_values:
+            pass
+        elif trial_num not in self.batch_metric_values[ensemble.name]:
+            pass
+        elif metric_name not in self.batch_metric_values[ensemble.name][trial_num]:
+            pass
+        
+        value = self.batch_metric_values[ensemble.name][trial_num][metric_name]
+        return value
 
 
     def add_experiment_metric_value(self, metric_name, metric_value):
         """
         Record the value of some metric that gets recorded only once per experiment. I forget why I put this in but probably it'll be 
         convenient for something.
-
+        May want to store by ensemble name as well? Decide when actually using...
         Args:
             metric_name (_type_): _description_
             metric_value (_type_): _description_

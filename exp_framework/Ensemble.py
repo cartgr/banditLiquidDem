@@ -2,59 +2,50 @@ import torch
 from tqdm import tqdm
 from learning import Net
 from Voter import Voter
+import random
 
 class Ensemble:
     def __init__(
         self,
-        models_per_train_digit_group,
         training_epochs,
-        batch_size,
-        window_size,
-        train_loader,
-        test_loader,
-        train_digit_groups,
-        test_digit_groups,
-        delegation_mechanism
+        n_voters,
+        delegation_mechanism,
+        name=None
     ):
-        # parameters used during training
-        self.models_per_train_digit_group = models_per_train_digit_group
         self.training_epochs = training_epochs
-        self.batch_size = batch_size
-        self.train_digit_groups = train_digit_groups
-        self.test_digit_groups = test_digit_groups
         self.delegation_mechanism = delegation_mechanism
+        self.n_voters = n_voters
 
-        # ML stuff created during training
-        self.train_loader = train_loader
-        self.test_loader = test_loader
-        # self.test_split_indices = []
-        self.voters = []
-
-        # # TODO: Should pass this in so it can be varied across ensembles being compared
-        # self.delegation_mechanism = DelegationMechanism(
-        #     batch_size=batch_size,
-        #     window_size=window_size
-        # )
+        self.name = name
+        if self.name is None:
+            self.name = f"Ensemble{random.randint(0, 1000)}"
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Define the loss function
-        # self.criterion = nn.CrossEntropyLoss()
+        self.voters = []
+    
+    def __str__(self) -> str:
+        return self.name
         
     def initialize_voters(self):
         """
         Create a voter for each model. Use to reset voters for speedier resetting between trials.
         """
         voters = []
-        voter_id = 0
-        for group in self.train_digit_groups:
-            for _ in range(self.models_per_train_digit_group):
-                model = Net().to(self.device)
-                voters.append(Voter(model,
-                                    # train_loader,
-                                    self.training_epochs,
-                                    voter_id))
-                voter_id += 1
+        # voter_id = 0
+        for id in range(self.n_voters):
+            model = Net().to(self.device)
+            voters.append(Voter(model,
+                                # train_loader,
+                                self.training_epochs,
+                                id))
+        # for group in self.train_digit_groups:
+        #     for _ in range(self.models_per_train_digit_group):
+        #         model = Net().to(self.device)
+        #         voters.append(Voter(model,
+        #                             # train_loader,
+        #                             self.training_epochs,
+        #                             voter_id))
+        #         voter_id += 1
         self.voters = voters
 
     def train_models(self):
@@ -90,7 +81,7 @@ class Ensemble:
         Make predictions on the given examples.
         """
         gurus = self.get_gurus()
-        print("ensemble predict method not tested and not incorporating weight")
+        print("ensemble predict method is not incorporating weight")
         all_preds = []
         for guru in gurus:
             predictions = guru.predict(X)
@@ -105,8 +96,12 @@ class Ensemble:
         """
         
         """
-        print("ensemble score method is untested. Why does it use mean?")
+        # Track accuracy within each voter (even delegating ones(?))
+        # TODO: Super inefficient, making each voter predict twice on the same data :/
+        for voter in self.voters:
+            voter.score(X, y)
 
+        # Compute whole ensemble accuracy
         predictions = self.predict(X)
         acc = (predictions == y).float().mean().item()
 
@@ -132,12 +127,15 @@ class Ensemble:
                 loss.backward()
                 voter.optimizer.step()
 
-    def update_delegations(self, train):
+    def update_delegations(self, accs, train):
         """
-        Allow each voter to update their delegation. Likely needs some other information passed to it as well,
-        such as recent accuracy.
+        Allow each voter to update their delegations, as applicable.
+
+        Args:
+            accs (list): full history of ensemble batch accuracies
+            train (bool): True iff in training phase, False iff in testing phase. Hopefully those are the only possibilities...
         """
-        pass
+        self.delegation_mechanism.update_delegations(accs, self.voters, train)
 
 
     def calculate_test_accuracy(self):

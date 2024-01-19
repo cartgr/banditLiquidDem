@@ -9,98 +9,57 @@ class DelegationMechanism:
         self.batch_size = batch_size
 
     def delegate(self, from_id, to_id):
-        # cycles are impossible with this mechanism, so we don't need to check for them
+        """
+        Create a new delegation from one voter to another which also removes any old delegations the new delegator had.
+        Currently, do not bother considering cycles or any reason why a delegation may be impossible.
+        Args:
+            from_id (_type_): _description_
+            to_id (_type_): _description_
+        """
         self.delegations[from_id] = to_id
 
-    def wilson_score_interval(self, point_wise_accuracies, confidence=0.99999):
-        ups = sum(point_wise_accuracies)
-        # downs = len(point_wise_accuracies) - ups
-        n = len(point_wise_accuracies)
+    # def calculate_CI(self, voter):
+        # Seems unused? - commented for now in case this breaks anything. Who needs Git...
+    #     # assume the point wise accuracies are a list of bernoulli random variables
+    #     # approximate using the Wilson score interval
+    #     point_wise_accuracies = voter.accuracy
 
-        # use the specified confidence value to calculate the z-score
-        z = stats.norm.ppf(1 - (1 - confidence) / 2)
-        p = ups / n
+    #     return wilson_score_interval(point_wise_accuracies)
 
-        left = p + 1 / (2 * n) * z * z
-        right = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
-        under = 1 + 1 / n * z * z
-
-        return ((left - right) / under, (left + right) / under)
-
-    def ucb(self, voter, t, c=3.0):
+    def update_delegations(self, ensemble_accs, voters, train):
         """
-        Calculate upper confidence bound of the bandit arm corresponding to voting directly. Loosely speaking, if this
-        is high enough the voter will vote directly.
-        point_wise_accuracies is the number of samples this voter has taken, i.e. n_i in UCB terms
-        t is the total number of samples taken by any agent, i.e. N in UCB terms
-
-        :param t: number of time steps passed
-        :param c: exploration term; higher means more exploration/higher chance of voting directly (?)
+        Update the delegation of each voter based on its recent performance, overall ensemble performance, and whether training or not.
+        The base DelegationMechanism class (currently) does not delegate at all. Subclasses should override this in order to provide
+        customized delegation behaviour.
+        Args:
+            ensemble_accs (list): all batch accuracies of the ensemble as a whole
+            voters (Voter): all Voters within the ensemble, they know their own accuracy history
+            train (bool): True iff in training phase
         """
-        if self.window_size is None:
-            point_wise_accuracies = (
-                voter.accuracy
-            )  # one value per sample that this voter has predicted upon
-            # t_window = t  # total number of possible data points within the window
-            mean = np.mean(point_wise_accuracies)  # mean accuracy/reward of arm pulls
-        else:
-            # # get accuracies from the most recent batches, if within the window
-            # sorted(voter.batch_accuracies_dict, reverse=True)
-            # batch_number = t // self.batch_size
-            # point_wise_accuracies = []
+        pass
+        
 
-            # for batch in range(batch_number - self.window_size, batch_number + 1):
-            #     if batch in voter.batch_accuracies_dict:
-            #         point_wise_accuracies.append(voter.batch_accuracies_dict[batch])
+    def get_gurus(self, voters):
+        # find all voters who have not delegated to anyone
+        gurus = []
+        for voter in voters:
+            if voter not in self.delegations.keys():
+                gurus.append(voter)
+        return gurus
+    
 
-            # # TODO: Unclear what to do in this case when the voter has not voted recently. Maybe go even higher?
-            # if len(point_wise_accuracies) == 0:
-            #     # point_wise_accuracies = [0]
-            #     mean = 0
-            # else:
-            #     mean = np.mean(
-            #         point_wise_accuracies
-            #     )  # mean accuracy/reward of arm pulls
+class UCBDelegationMechanism(DelegationMechanism):
 
-            # t_window = (
-            #     self.window_size * self.batch_size
-            # )  # total number of possible data points within the window
-
-            # get the most recent window_size predictions and take the mean
-            if len(voter.accuracy) < self.window_size:
-                mean = np.mean(voter.accuracy)
-            else:
-                mean = np.mean(voter.accuracy[-self.window_size :])
-
-        n_t = len(voter.accuracy)  # number of arm pulls the voter has taken
-
-        fudge_factor = 1e-8
-
-        ucb = mean + np.sqrt(c * np.log(t) / (n_t + fudge_factor))
-        # ucb = mean + np.sqrt(c * np.log(t_window) / (n_t + fudge_factor))
-
-        return ucb
-
-    def calculate_CI(self, voter):
-        point_wise_accuracies = voter.accuracy
-
-        # assume the point wise accuracies are a list of bernoulli random variables
-        # approximate using the Wilson score interval
-        return self.wilson_score_interval(point_wise_accuracies)
-
-    def update_delegations(self, voters):
+    def update_delegations(self, ensemble_accs, voters, train):
         # first, we need to recalculate the CI for each voter
         for voter in voters:
-            voter.ucb_score = self.ucb(voter, self.t)
+            voter.ucb_score = ucb(voter, self.t)
 
         # now we need to do two things:
         # 1. ensure all current delegations are still valid. If not, remove them
         # 2. go through the full delegation process
         delegators_to_pop = []
-        for (
-            delegator,
-            delegee,
-        ) in self.delegations.items():  # check delegations and break invalid ones
+        for delegator, delegee in self.delegations.items():  # check delegations and break invalid ones
             if delegator.ucb_score > delegee.ucb_score:
                 delegators_to_pop.append(delegator)
         for delegator in delegators_to_pop:
@@ -124,10 +83,73 @@ class DelegationMechanism:
                 delegee = np.random.choice(possible_delegees, p=probabilities)
                 self.delegate(voter, delegee)
 
-    def get_gurus(self, voters):
-        # find all voters who have not delegated to anyone
-        gurus = []
-        for voter in voters:
-            if voter not in self.delegations.keys():
-                gurus.append(voter)
-        return gurus
+
+def wilson_score_interval(self, point_wise_accuracies, confidence=0.99999):
+    ups = sum(point_wise_accuracies)
+    # downs = len(point_wise_accuracies) - ups
+    n = len(point_wise_accuracies)
+
+    # use the specified confidence value to calculate the z-score
+    z = stats.norm.ppf(1 - (1 - confidence) / 2)
+    p = ups / n
+
+    left = p + 1 / (2 * n) * z * z
+    right = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    under = 1 + 1 / n * z * z
+
+    return ((left - right) / under, (left + right) / under)
+
+
+def ucb(window_size, voter, t, c=3.0):
+    """
+    Calculate upper confidence bound of the bandit arm corresponding to voting directly. Loosely speaking, if this
+    is high enough the voter will vote directly.
+    point_wise_accuracies is the number of samples this voter has taken, i.e. n_i in UCB terms
+    t is the total number of samples taken by any agent, i.e. N in UCB terms
+
+    :param t: number of time steps passed
+    :param c: exploration term; higher means more exploration/higher chance of voting directly (?)
+    """
+    if window_size is None:
+        point_wise_accuracies = (
+            voter.accuracy
+        )  # one value per sample that this voter has predicted upon
+        # t_window = t  # total number of possible data points within the window
+        mean = np.mean(point_wise_accuracies)  # mean accuracy/reward of arm pulls
+    else:
+        # # get accuracies from the most recent batches, if within the window
+        # sorted(voter.batch_accuracies_dict, reverse=True)
+        # batch_number = t // self.batch_size
+        # point_wise_accuracies = []
+
+        # for batch in range(batch_number - self.window_size, batch_number + 1):
+        #     if batch in voter.batch_accuracies_dict:
+        #         point_wise_accuracies.append(voter.batch_accuracies_dict[batch])
+
+        # # TODO: Unclear what to do in this case when the voter has not voted recently. Maybe go even higher?
+        # if len(point_wise_accuracies) == 0:
+        #     # point_wise_accuracies = [0]
+        #     mean = 0
+        # else:
+        #     mean = np.mean(
+        #         point_wise_accuracies
+        #     )  # mean accuracy/reward of arm pulls
+
+        # t_window = (
+        #     self.window_size * self.batch_size
+        # )  # total number of possible data points within the window
+
+        # get the most recent window_size predictions and take the mean
+        if len(voter.accuracy) < window_size:
+            mean = np.mean(voter.accuracy)
+        else:
+            mean = np.mean(voter.accuracy[-window_size :])
+
+    n_t = len(voter.accuracy)  # number of arm pulls the voter has taken
+
+    fudge_factor = 1e-8
+
+    ucb = mean + np.sqrt(c * np.log(t) / (n_t + fudge_factor))
+    # ucb = mean + np.sqrt(c * np.log(t_window) / (n_t + fudge_factor))
+
+    return ucb
