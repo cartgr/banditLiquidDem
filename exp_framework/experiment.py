@@ -92,7 +92,7 @@ class Experiment():
                 ensemble.learn_batch(images, labels)
 
                 # Delegate
-                ensemble.update_delegations(train=True)
+                ensemble.update_delegations(train=False)
 
                 # Record performance
                 test_acc = ensemble.score(images, labels)
