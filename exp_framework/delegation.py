@@ -72,6 +72,8 @@ class DelegationMechanism:
             else:
                 mean = np.mean(voter.accuracy[-self.window_size :])
 
+        # TODO: would be good to have a way of calculating how many of times this voter has voted in the last window_size steps
+        # Then our denominator would be much smaller and would give max bonus as soon as the voter has voted in the last window_size steps
         n_t = len(voter.accuracy)  # number of arm pulls the voter has taken
 
         fudge_factor = 1e-8
