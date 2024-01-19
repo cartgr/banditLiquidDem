@@ -1,10 +1,5 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
-from torchvision import datasets, transforms
 from tqdm import tqdm
-from delegation import DelegationMechanism
 from learning import Net
 from Voter import Voter
 
@@ -15,8 +10,8 @@ class Ensemble:
         training_epochs,
         batch_size,
         window_size,
-        train_loaders,
-        test_loaders,
+        train_loader,
+        test_loader,
         train_digit_groups,
         test_digit_groups,
         delegation_mechanism
@@ -30,8 +25,8 @@ class Ensemble:
         self.delegation_mechanism = delegation_mechanism
 
         # ML stuff created during training
-        self.train_loaders = train_loaders
-        self.test_loaders = test_loaders
+        self.train_loader = train_loader
+        self.test_loader = test_loader
         # self.test_split_indices = []
         self.voters = []
 
@@ -52,11 +47,11 @@ class Ensemble:
         """
         voters = []
         voter_id = 0
-        for train_loader in self.train_loaders:
-            for i in range(self.models_per_train_digit_group):
+        for group in self.train_digit_groups:
+            for _ in range(self.models_per_train_digit_group):
                 model = Net().to(self.device)
                 voters.append(Voter(model,
-                                    train_loader,
+                                    # train_loader,
                                     self.training_epochs,
                                     voter_id))
                 voter_id += 1
@@ -70,54 +65,80 @@ class Ensemble:
 
         # models = []
 
-        for voter in self.voters:
+        # for images, labels in self.train_loaders:
+        #     self.learn_batch(images, labels)
+        for loader in self.train_loader:
+            for images, labels in loader:
+                self.learn_batch(images, labels)
 
-            for _ in range(voter.training_epochs):
-                for loader in self.train_loaders:
-                    for images, labels in loader:
-                        images, labels = images.to(self.device), labels.to(self.device)
-                        voter.optimizer.zero_grad()
-                        logits = voter.model(images)
-                        loss = voter.criterion(logits, labels)
-                        loss.backward()
-                        voter.optimizer.step()
+        # for voter in self.voters:
 
-        # for loader in self.train_loaders:
-        #     loader_models = [
-        #         Net().to(self.device) for i in range(self.models_per_train_digit_group)
-        #     ]
-        #     optimizers = [
-        #         optim.Adam(model.parameters(), lr=0.001) for model in loader_models
-        #     ]
-
-        #     for _ in tqdm(range(self.training_epochs)):
-        #         for idx, model in enumerate(loader_models):
+        #     for _ in range(voter.training_epochs):
+        #         for loader in self.train_loaders:
         #             for images, labels in loader:
         #                 images, labels = images.to(self.device), labels.to(self.device)
-        #                 optimizers[idx].zero_grad()
-        #                 logits = loader_models[idx](images)
-        #                 loss = self.criterion(logits, labels)
+        #                 voter.optimizer.zero_grad()
+        #                 logits = voter.model(images)
+        #                 loss = voter.criterion(logits, labels)
         #                 loss.backward()
-        #                 optimizers[idx].step()
-
-        #     models += loader_models
-        # self.voters = models
+        #                 voter.optimizer.step()
 
         return self.voters
     
-    def predict(self):
+    def predict(self, X):
         """
-        Make predictions on the test data set when initializing this ensemble.
-        (May actually be better to not give test data when creating ensemble but pass it here?)
+        Make predictions on the given examples.
         """
-        print("Might want to make a prediction method.")
-        pass
+        gurus = self.get_gurus()
+        print("ensemble predict method not tested and not incorporating weight")
+        all_preds = []
+        for guru in gurus:
+            predictions = guru.predict(X)
+            all_preds.append(predictions)
+
+        all_preds = torch.stack(all_preds).transpose(0, 1)
+        all_preds = torch.mode(all_preds, dim=1)[0]
+
+        return all_preds
+    
+    def score(self, X, y):
+        """
+        
+        """
+        print("ensemble score method is untested. Why does it use mean?")
+
+        predictions = self.predict(X)
+        acc = (predictions == y).float().mean().item()
+
+        return acc
+
 
     def get_gurus(self):
         """
         
         """
         return self.delegation_mechanism.get_gurus(self.voters)
+
+    def learn_batch(self, X, y):
+        """
+        Have each voter learn a single batch of data. Should be able to be used during training or testing?
+        """
+        for voter in self.voters:
+            for _ in range(voter.training_epochs):
+                images, labels = X.to(self.device), y.to(self.device)
+                voter.optimizer.zero_grad()
+                logits = voter.model(images)
+                loss = voter.criterion(logits, labels)
+                loss.backward()
+                voter.optimizer.step()
+
+    def update_delegations(self, train):
+        """
+        Allow each voter to update their delegation. Likely needs some other information passed to it as well,
+        such as recent accuracy.
+        """
+        pass
+
 
     def calculate_test_accuracy(self):
         """
@@ -131,7 +152,7 @@ class Ensemble:
         full_ensemble_accs = []
 
         # TODO: Why only test_loaders[0]? It should be all, right?
-        for data, target in tqdm(self.test_loaders[0]):
+        for data, target in tqdm(self.test_loader[0]):
             data, target = data.to(self.device), target.to(self.device)
 
             gurus = self.get_gurus()
@@ -189,12 +210,6 @@ class Ensemble:
             # take the highest probability
             liquid_dem_preds = torch.argmax(probas, dim=1)
             liquid_dem_proba_accs.append((liquid_dem_preds == target).float().mean().item())
-
-            # # get every voter to predict and extend their accuracies
-            # for voter in voters:
-            #     predictions = voter.predict(data)
-            #     point_wise_accuracies = (predictions == target).float().tolist()
-            #     voter.accuracy.extend(point_wise_accuracies)
 
             # get all of the voters to predict then take the majority vote
             full_ensemble_preds = []

@@ -14,7 +14,7 @@ class DelegationMechanism:
 
     def wilson_score_interval(self, point_wise_accuracies, confidence=0.99999):
         ups = sum(point_wise_accuracies)
-        downs = len(point_wise_accuracies) - ups
+        # downs = len(point_wise_accuracies) - ups
         n = len(point_wise_accuracies)
 
         # use the specified confidence value to calculate the z-score
@@ -41,7 +41,7 @@ class DelegationMechanism:
             point_wise_accuracies = (
                 voter.accuracy
             )  # one value per sample that this voter has predicted upon
-            t_window = t  # total number of possible data points within the window
+            # t_window = t  # total number of possible data points within the window
             mean = np.mean(point_wise_accuracies)  # mean accuracy/reward of arm pulls
         else:
             # # get accuracies from the most recent batches, if within the window

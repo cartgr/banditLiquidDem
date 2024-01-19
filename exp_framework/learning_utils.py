@@ -1,4 +1,4 @@
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, ConcatDataset
 from torchvision import datasets, transforms
 
 
@@ -27,6 +27,11 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
 
     subsets = [Subset(ds, ti) for ti in indices]
     loaders = [DataLoader(subset, batch_size=batch_size, shuffle=True) for subset in subsets]
+    
+    data = ConcatDataset(subsets)
+    whole_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
+    
+    print("Need to make sure data is shuffled!")
 
     test_loader = []
     split_indices = []
@@ -37,4 +42,5 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
         else:
             split_indices.append(split_indices[-1] + len(test_loader))
 
-    return loaders, split_indices
+    return whole_loader, split_indices
+    # return loaders, split_indices

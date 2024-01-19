@@ -2,11 +2,11 @@ import torch.optim as optim
 import torch.nn as nn
 
 class Voter:
-    def __init__(self, model, loader, training_epochs, id):
+    def __init__(self, model, training_epochs, id):
         self.model = model  # classifier upon which the voter is built
         self.optimizer = optim.Adam(model.parameters(), lr=0.001)
         self.id = id
-        self.data_loader = loader
+        # self.data_loader = loader
         self.training_epochs = training_epochs
         self.criterion = nn.CrossEntropyLoss()
 
