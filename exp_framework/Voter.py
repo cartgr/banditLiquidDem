@@ -16,6 +16,22 @@ class Voter:
         self.CI = (0, 0)
         self.ucb_score = 0
 
+    def score(self, X, y):
+        """
+        Calculate, save, and return the accuracy of this model at predicting the given batch of data.
+
+        Args:
+            X (_type_): _description_
+            y (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        y_pred = self.predict(X)
+        accuracy = (y_pred.round() == y).float().mean()
+        self.batch_accuracies.append(accuracy)
+        return accuracy
+
     def partial_fit(self, X, y):
         self.model.partial_fit(X, y)
 
