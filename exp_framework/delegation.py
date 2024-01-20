@@ -48,6 +48,26 @@ class DelegationMechanism:
                 gurus.append(voter)
         return gurus
 
+    def get_gurus_with_weights(self, voters):
+        # find all voters who have not delegated to anyone and how much weight they have
+
+        gurus = dict()
+        for voter in voters:
+            if voter not in self.delegations.keys():
+                gurus[voter] = 1
+        for guru in gurus:
+            gurus[guru] = self.count_guru_weight(guru, self.delegations)
+
+        return gurus
+
+    def count_guru_weight(self, guru, delegations):
+        # count the number of voters that have delegated to this guru
+        weight = 1
+        for voter in delegations.keys():
+            if delegations[voter] == guru:
+                weight += self.count_guru_weight(voter, delegations)
+        return weight
+
 
 class UCBDelegationMechanism(DelegationMechanism):
     def __init__(self, batch_size, window_size=None, ucb_window_size=500):

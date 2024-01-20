@@ -88,12 +88,17 @@ class Ensemble:
         y is only used if record_pointwise_accs is True, in which case the accuracy of each guru on each example is recorded.
 
         """
-        gurus = self.get_gurus()
-        print("ensemble predict method is not incorporating weight")
+        # gurus = self.get_gurus()
+        gurus_and_weights = self.delegation_mechanism.get_gurus_with_weights(
+            self.voters
+        )
+        # print("ensemble predict method is not incorporating weight")
         all_preds = []
-        for guru in gurus:
+        for guru, weight in gurus_and_weights.items():
             predictions = guru.predict(X)
-            all_preds.append(predictions)
+            # if a guru has weight 2, append their predictions twice, etc.
+            for i in range(weight):
+                all_preds.append(predictions)
 
             # append len(X) 1s to guru.binary_active because all gurus are active on all examples
             guru.binary_active.extend([1] * len(X))
@@ -106,7 +111,7 @@ class Ensemble:
         # they are not active on any of the examples
         # TODO: Verify that "if voter not in gurus" will actually work?
         for voter in self.voters:
-            if voter not in gurus:
+            if voter not in gurus_and_weights.keys():
                 voter.binary_active.extend([0] * len(X))
 
         all_preds = torch.stack(all_preds).transpose(0, 1)
