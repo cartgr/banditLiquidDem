@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-class Net(nn.Module):
 
+class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         # TODO: Should generalize this to work for other datasets

@@ -7,22 +7,21 @@ print("Starting!")
 batch_size = 128
 window_size = 10
 
-del_mech = DelegationMechanism(
-            batch_size=batch_size,
-            window_size=window_size
-        )
+del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
 
 
 print("Creating Experiment")
-ensembles= [
+
+ensembles = [
     Ensemble(
-            training_epochs=1,
-            n_voters=10,
-            delegation_mechanism=del_mech
-            )
+        training_epochs=1,
+        n_voters=10,
+        delegation_mechanism=del_mech,
+        name="UCB_delegation_ensemble",
+    )
 ]
+
 exp = Experiment(n_trials=5, ensembles=ensembles)
 exp.run()
 
 print("Finished experiment!")
-

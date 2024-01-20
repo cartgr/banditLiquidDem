@@ -3,12 +3,11 @@ from torchvision import datasets, transforms
 
 
 def create_mnist_loaders(digit_groups, batch_size=128, train=True):
-    """
-    """
+    """ """
 
     transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
-        )
+        [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+    )
     if train:
         ds = datasets.MNIST(
             root="./data", train=True, download=True, transform=transform
@@ -20,17 +19,17 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
 
     indices = []
     for digit_group in digit_groups:
-        ti = [
-            i for i, label in enumerate(ds.targets) if label in digit_group
-        ]
+        ti = [i for i, label in enumerate(ds.targets) if label in digit_group]
         indices.append(ti)
 
     subsets = [Subset(ds, ti) for ti in indices]
-    loaders = [DataLoader(subset, batch_size=batch_size, shuffle=True) for subset in subsets]
-    
+    loaders = [
+        DataLoader(subset, batch_size=batch_size, shuffle=True) for subset in subsets
+    ]
+
     data = ConcatDataset(subsets)
     whole_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
-    
+
     print("Need to make sure data is shuffled!")
 
     test_loader = []

@@ -1,6 +1,7 @@
 import torch.optim as optim
 import torch.nn as nn
 
+
 class Voter:
     def __init__(self, model, training_epochs, id):
         self.model = model  # classifier upon which the voter is built
@@ -15,6 +16,10 @@ class Voter:
         self.batch_accuracies_dict = dict()
         self.CI = (0, 0)
         self.ucb_score = 0
+
+        self.binary_active = (
+            []
+        )  # list storing one if voter was active on the example, zero otherwise
 
     def score(self, X, y):
         """

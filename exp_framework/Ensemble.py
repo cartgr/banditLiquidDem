@@ -4,13 +4,14 @@ from learning import Net
 from Voter import Voter
 import random
 
+
 class Ensemble:
     def __init__(
         self,
         training_epochs,
         n_voters,
         delegation_mechanism,
-        name=None
+        name,
     ):
         self.training_epochs = training_epochs
         self.delegation_mechanism = delegation_mechanism
@@ -22,10 +23,10 @@ class Ensemble:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.voters = []
-    
+
     def __str__(self) -> str:
         return self.name
-        
+
     def initialize_voters(self):
         """
         Create a voter for each model. Use to reset voters for speedier resetting between trials.
@@ -34,10 +35,14 @@ class Ensemble:
         # voter_id = 0
         for id in range(self.n_voters):
             model = Net().to(self.device)
-            voters.append(Voter(model,
-                                # train_loader,
-                                self.training_epochs,
-                                id))
+            voters.append(
+                Voter(
+                    model,
+                    # train_loader,
+                    self.training_epochs,
+                    id,
+                )
+            )
         # for group in self.train_digit_groups:
         #     for _ in range(self.models_per_train_digit_group):
         #         model = Net().to(self.device)
@@ -75,10 +80,13 @@ class Ensemble:
         #                 voter.optimizer.step()
 
         return self.voters
-    
-    def predict(self, X):
+
+    def predict(self, X, y, record_pointwise_accs=False):
         """
         Make predictions on the given examples.
+
+        y is only used if record_pointwise_accs is True, in which case the accuracy of each guru on each example is recorded.
+
         """
         gurus = self.get_gurus()
         print("ensemble predict method is not incorporating weight")
@@ -87,14 +95,29 @@ class Ensemble:
             predictions = guru.predict(X)
             all_preds.append(predictions)
 
+            # append len(X) 1s to guru.binary_active because all gurus are active on all examples
+            guru.binary_active.extend([1] * len(X))
+
+            if record_pointwise_accs:
+                point_wise_accuracies = (predictions == y).float().tolist()
+                guru.accuracy.extend(point_wise_accuracies)
+
+        # for each voter that is not a guru, append len(X) 0s to their binary_active list
+        # they are not active on any of the examples
+        # TODO: Verify that "if voter not in gurus" will actually work?
+        for voter in self.voters:
+            if voter not in gurus:
+                voter.binary_active.extend([0] * len(X))
+
         all_preds = torch.stack(all_preds).transpose(0, 1)
         all_preds = torch.mode(all_preds, dim=1)[0]
 
         return all_preds
-    
-    def score(self, X, y):
+
+    def score(self, X, y, record_pointwise_accs=False):
         """
-        
+        If record_pointwise_accs is True, then record the accuracy of each guru on each example.
+        Otherwise only batch accuracies are recorded for each voter.
         """
         # Track accuracy within each voter (even delegating ones(?))
         # TODO: Super inefficient, making each voter predict twice on the same data :/
@@ -102,16 +125,13 @@ class Ensemble:
             voter.score(X, y)
 
         # Compute whole ensemble accuracy
-        predictions = self.predict(X)
+        predictions = self.predict(X, y, record_pointwise_accs=record_pointwise_accs)
         acc = (predictions == y).float().mean().item()
 
         return acc
 
-
     def get_gurus(self):
-        """
-        
-        """
+        """ """
         return self.delegation_mechanism.get_gurus(self.voters)
 
     def learn_batch(self, X, y):
@@ -127,7 +147,7 @@ class Ensemble:
                 loss.backward()
                 voter.optimizer.step()
 
-    def update_delegations(self, accs, train):
+    def update_delegations(self, accs, train, t_increment=None):
         """
         Allow each voter to update their delegations, as applicable.
 
@@ -135,8 +155,9 @@ class Ensemble:
             accs (list): full history of ensemble batch accuracies
             train (bool): True iff in training phase, False iff in testing phase. Hopefully those are the only possibilities...
         """
-        self.delegation_mechanism.update_delegations(accs, self.voters, train)
-
+        self.delegation_mechanism.update_delegations(
+            accs, self.voters, train, t_increment
+        )
 
     def calculate_test_accuracy(self):
         """
@@ -180,7 +201,9 @@ class Ensemble:
                         guru_weight += 1
                 if guru_weight == 0:
                     guru_weight = 1
-                for i in range(guru_weight):  # append one "vote" per weight of each guru
+                for i in range(
+                    guru_weight
+                ):  # append one "vote" per weight of each guru
                     liquid_dem_preds.append(guru_pred)
 
             liquid_dem_preds = torch.stack(liquid_dem_preds).transpose(0, 1)
@@ -197,7 +220,9 @@ class Ensemble:
             liquid_dem_preds = torch.stack(liquid_dem_preds).transpose(0, 1)
             # take the majority vote
             liquid_dem_preds = torch.mode(liquid_dem_preds, dim=1)[0]
-            liquid_dem_vote_accs.append((liquid_dem_preds == target).float().mean().item())
+            liquid_dem_vote_accs.append(
+                (liquid_dem_preds == target).float().mean().item()
+            )
 
             probas = []
             for guru in gurus:
@@ -207,17 +232,21 @@ class Ensemble:
             probas = torch.mean(probas, dim=1)
             # take the highest probability
             liquid_dem_preds = torch.argmax(probas, dim=1)
-            liquid_dem_proba_accs.append((liquid_dem_preds == target).float().mean().item())
+            liquid_dem_proba_accs.append(
+                (liquid_dem_preds == target).float().mean().item()
+            )
 
             # get all of the voters to predict then take the majority vote
             full_ensemble_preds = []
             for voter in self.voters:
                 full_ensemble_preds.append(voter.predict(data))
             full_ensemble_preds = torch.stack(full_ensemble_preds).transpose(0, 1)
-            
+
             # take the majority vote
             full_ensemble_preds = torch.mode(full_ensemble_preds, dim=1)[0]
-            full_ensemble_accs.append((full_ensemble_preds == target).float().mean().item())
+            full_ensemble_accs.append(
+                (full_ensemble_preds == target).float().mean().item()
+            )
 
             # print(delegation_mechanism.delegations)
 
