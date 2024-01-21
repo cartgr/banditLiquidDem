@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader, Subset, ConcatDataset
 from torchvision import datasets, transforms
+import random
 
 
 def create_mnist_loaders(digit_groups, batch_size=128, train=True):
@@ -20,6 +21,7 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
     indices = []
     for digit_group in digit_groups:
         ti = [i for i, label in enumerate(ds.targets) if label in digit_group]
+        random.shuffle(ti) # shuffles in place
         indices.append(ti)
 
     subsets = [Subset(ds, ti) for ti in indices]
