@@ -1,4 +1,4 @@
-import learning_utils
+from . import learning_utils
 
 
 class Experiment:

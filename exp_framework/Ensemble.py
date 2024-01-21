@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
-from learning import Net
-from Voter import Voter
+from .learning import Net
+from .Voter import Voter
 import random
 
 

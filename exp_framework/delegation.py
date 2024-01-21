@@ -78,13 +78,20 @@ class UCBDelegationMechanism(DelegationMechanism):
         if t_increment:
             self.t += t_increment
 
-        # if train is true dont do anything
+        # if train is true, we want to be training k classifiers per digit group
         if train:
             return
+            # say we have 10 voters and somehow we know there are 2 digit groups (0-4, 5-9)
+            # we want to train 5 voters per digit group
+            
         else:
             # first, we need to recalculate the CI for each voter
             for voter in voters:
-                voter.ucb_score = ucb(voter, self.t, self.ucb_window_size)
+                voter.ucb_score = ucb(
+                    self.window_size, voter, self.t, self.ucb_window_size
+                )
+
+            print("Delegations: ", self.delegations)
 
             # now we need to do two things:
             # 1. ensure all current delegations are still valid. If not, remove them
@@ -158,8 +165,10 @@ def ucb(window_size, voter, t, ucb_window_size, c=3.0):
             mean = np.mean(voter.accuracy)
         else:
             mean = np.mean(voter.accuracy[-window_size:])
-
-    if t < ucb_window_size:
+    if ucb_window_size is None:
+        total_t = t
+        n_t = len(voter.accuracy)
+    elif t < ucb_window_size:
         total_t = t
         n_t = len(voter.accuracy)
     else:
@@ -168,11 +177,8 @@ def ucb(window_size, voter, t, ucb_window_size, c=3.0):
             voter.binary_active[-ucb_window_size:]
         )  # number of arm pulls in the last ucb_window_size examples
 
-    # n_t = len(voter.accuracy)  # number of arm pulls the voter has taken
-
-    fudge_factor = 1e-8
+    fudge_factor = 1e-8  # to avoid division by zero
 
     ucb = mean + np.sqrt(c * np.log(total_t) / (n_t + fudge_factor))
-    # ucb = mean + np.sqrt(c * np.log(t_window) / (n_t + fudge_factor))
 
     return ucb
