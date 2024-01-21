@@ -21,7 +21,7 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
     indices = []
     for digit_group in digit_groups:
         ti = [i for i, label in enumerate(ds.targets) if label in digit_group]
-        random.shuffle(ti) # shuffles in place
+        random.shuffle(ti)  # shuffles in place
         indices.append(ti)
 
     subsets = [Subset(ds, ti) for ti in indices]
@@ -31,8 +31,6 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
 
     data = ConcatDataset(subsets)
     whole_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
-
-    print("Need to make sure data is shuffled!")
 
     test_loader = []
     split_indices = []

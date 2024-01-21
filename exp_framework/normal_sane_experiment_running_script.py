@@ -18,6 +18,8 @@ ensembles = [
         n_voters=10,
         delegation_mechanism=del_mech,
         name="UCB_delegation_ensemble",
+        input_dim=28 * 28,
+        output_dim=10,
     )
 ]
 

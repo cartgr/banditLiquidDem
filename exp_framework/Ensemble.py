@@ -12,6 +12,8 @@ class Ensemble:
         n_voters,
         delegation_mechanism,
         name,
+        input_dim=28 * 28,  # for mnist
+        output_dim=10,  # for mnist
     ):
         self.training_epochs = training_epochs
         self.delegation_mechanism = delegation_mechanism
@@ -20,6 +22,9 @@ class Ensemble:
         self.name = name
         if self.name is None:
             self.name = f"Ensemble{random.randint(0, 1000)}"
+
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.voters = []
@@ -34,7 +39,9 @@ class Ensemble:
         voters = []
         # voter_id = 0
         for id in range(self.n_voters):
-            model = Net().to(self.device)
+            model = Net(input_dim=self.input_dim, output_dim=self.output_dim).to(
+                self.device
+            )
             voters.append(
                 Voter(
                     model,

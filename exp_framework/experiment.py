@@ -109,7 +109,9 @@ class Experiment:
                 test_acc_history = self.get_batch_metric_value(
                     ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc"
                 )
-                ensemble.update_delegations(accs=test_acc_history, train=False, t_increment=t_increment)
+                ensemble.update_delegations(
+                    accs=test_acc_history, train=False, t_increment=t_increment
+                )
 
         print(self.batch_metric_values)
 
