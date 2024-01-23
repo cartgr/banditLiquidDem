@@ -10,7 +10,7 @@ class DelegationMechanism:
         self.window_size = window_size
         self.batch_size = batch_size
 
-    def delegate(self, from_id, to_id):
+    def add_delegation(self, from_id, to_id):
         """
         Create a new delegation from one voter to another which also removes any old delegations the new delegator had.
         Currently, do not bother considering cycles or any reason why a delegation may be impossible.
@@ -18,10 +18,16 @@ class DelegationMechanism:
             from_id (_type_): _description_
             to_id (_type_): _description_
         """
+        print(f"Making delegation from {from_id} to {to_id} at t={self.t}.")
         self.delegations[from_id] = to_id
 
-    def is_voter_active(self, v: Voter):
-        return v in self.delegations
+    def remove_delegation(self, v_id):
+        print(f"Removing delegation {v_id} made.")
+        self.delegations.pop(v_id, None)
+
+    def voter_is_active(self, v: Voter):
+        # Voter v is delegating if they are NOT making a delegation. That is, if they are not a key in the delegation dict.
+        return v.id not in self.delegations
 
     # def calculate_CI(self, voter):
     # Seems unused? - commented for now in case this breaks anything. Who needs Git...
@@ -48,29 +54,40 @@ class DelegationMechanism:
         # find all voters who have not delegated to anyone
         gurus = []
         for voter in voters:
-            if voter not in self.delegations.keys():
+            if voter.id not in self.delegations.keys():
                 gurus.append(voter)
         return gurus
 
     def get_gurus_with_weights(self, voters):
         # find all voters who have not delegated to anyone and how much weight they have
 
-        gurus = dict()
-        for voter in voters:
-            if voter not in self.delegations.keys():
-                gurus[voter] = 1
+        gurus = self.get_gurus(voters)
+        guru_weights = dict()
         for guru in gurus:
-            gurus[guru] = self.count_guru_weight(guru, self.delegations)
+            guru_weights[guru] = self.count_guru_weight(guru, self.delegations)
 
-        return gurus
+        return guru_weights
 
     def count_guru_weight(self, guru, delegations):
         # count the number of voters that have delegated to this guru
         weight = 1
         for voter in delegations.keys():
-            if delegations[voter] == guru:
-                weight += self.count_guru_weight(voter, delegations)
+            if self.get_guru_of_voter(voter) == guru:
+                weight += 1
+            # if delegations[voter] == guru:
+            #     weight += self.count_guru_weight(voter, delegations)
         return weight
+    
+    def get_guru_of_voter(self, v_id):
+        # Recursively trace through delegations until the guru of this voter is found.
+        # A voter is a guru if they do not appear as a key in self.delegations
+        if v_id not in self.delegations:
+            return v_id
+        else:
+            delegatee = self.delegations[v_id]
+            while delegatee in self.delegations:
+                delegatee = self.delegations[delegatee]
+            return delegatee
 
 
 class UCBDelegationMechanism(DelegationMechanism):
@@ -126,26 +143,34 @@ class UCBDelegationMechanism(DelegationMechanism):
                     sum_gaps = sum(gaps)
                     probabilities = [gap / sum_gaps for gap in gaps]
                     delegee = np.random.choice(possible_delegees, p=probabilities)
-                    self.delegate(voter, delegee)
+                    self.add_delegation(voter, delegee)
 
 
 class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
 
-    def __init__(self, batch_size, max_active_voters=1, window_size=None, t_between_delegation=3):
+    def __init__(self, batch_size, num_voters, max_active_voters=1, window_size=None, t_between_delegation=3):
         
+        super().__init__(batch_size, window_size)
+
         self.max_active_voters = max_active_voters
         self.t_between_delegation = t_between_delegation    # minimum number of timesteps that should pass between any delegations
         self.most_recent_delegation_time = 0
-
-        super().__init__(batch_size, window_size)
+        
+        # Each voter should delegate so that only max_active_voters remain active
+        # Assumes all voters have consecutive ids :/
+        for from_id in range(max_active_voters, num_voters):
+            to_id = from_id % max_active_voters
+            self.add_delegation(from_id=from_id, to_id=to_id)
 
 
     def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
 
+        should_delegate = []
+        inactive_voters = []
         for v in voters:
-            num_active_voters = self.get_gurus()
+            # num_active_voters = self.get_gurus()
 
-            if self.is_voter_active(v):
+            if self.voter_is_active(v):
                 '''
                 If acc_v is high and staying high compared with previous time steps:
                     v stays active by doing nothing
@@ -156,12 +181,15 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                 If acc_v is low (shouldn't happen?):
                     v should delegate
                 '''
-                if ensemble_accs[v.id] > 1:
+                # if voter_has_improved_linreg(t_now=self.t, t_then=self.t - self.window_size, voter_batch_accs=v.batch_accuracies):
+                slope = accuracy_linear_regression_slope(t_now=self.t, t_then=self.t - self.window_size, voter_batch_accs=v.batch_accuracies)
+                # print(f"Linear regression slope is: {slope} at time {self.t}")
+                if slope > -0.1:
+                    # voter should remain active if they are continuing to learn
                     pass
-                elif ensemble_accs[v.id] < 1:
-                    pass
-                elif ensemble_accs[v.id] < 0:
-                    pass
+                else:
+                    print(f"Linear regression slope is: {slope} at time {self.t} so {v} is delegating.")
+                    should_delegate.append(v)
             else:   # v is inactive, we rely on all voters always tracking their score
                 '''
                 if acc_v is low and not improving:
@@ -172,14 +200,70 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                 if acc_v is low and improving:
                     v should become active (this probably means the classifier is already trained?)
                 '''
-                if ensemble_accs[v.id] > 1:
-                    pass
-                elif ensemble_accs[v.id] < 1:
-                    pass
-                elif ensemble_accs[v.id] < 0:
-                    pass
+                inactive_voters.append(v)
+        # sort inactive voters by ascending accuracy to maximize chance of getting an untrained clf
+        inactive_voters.sort(key=lambda x: x.batch_accuracies[-1])
+        # # sort inactive voters by descending accuracy; minimizes duplicate training?
+        # inactive_voters.sort(key=lambda x: x.batch_accuracies[-1], reverse=True)
+
+        # Have each delegating voter delegate to the next least accurate delegator
+        for i in range(len(should_delegate)):
+
+            new_guru = inactive_voters[i]
+            new_delegator = should_delegate[i]
+            
+            self.remove_delegation(new_guru.id)
+            self.add_delegation(new_delegator.id, new_guru.id)
+
 
         return super().update_delegations(ensemble_accs, voters, train, t_increment)
+
+
+def voter_has_improved(t_now, t_then, voter_batch_accs):
+    """
+    Return True iff this voter is more accurate than it was at the given time. Return False if the voter is not more accurate
+    or if there is not that much history.
+    # TODO: Add some other argument like accuracy_metric to allow more reasonable checks of accuracy.
+    Args:
+        t_now int: Probably redundant; current time step. Probably refers to the final value in voter_batch_accs
+        t_steps_back int: Past time step to compare against.
+        voter_batch_accs list: _description_
+    """
+    if t_then < 0 or t_now >= len(voter_batch_accs) or t_then >= t_now:
+        return False
+    return voter_batch_accs[t_now] > voter_batch_accs[t_then]
+
+def voter_has_improved_linreg(t_now, t_then, voter_batch_accs):
+    """
+    Return True iff this voter's accuracy is trending upwards. Return False if the voter's accuracy is trending
+    down or if there is enough that much history.
+    Args:
+        t_now int: Probably redundant; current time step. Probably refers to the final value in voter_batch_accs
+        t_steps_back int: Past time step to compare against.
+        voter_batch_accs list: _description_
+    """
+    if t_then < 0 or t_now >= len(voter_batch_accs) or t_then >= t_now:
+        return False
+    recent_accs = voter_batch_accs[t_then:t_now+1]
+    lr = stats.linregress(range(len(recent_accs)), recent_accs)
+    # print(f"Lin Regression result is {lr}")
+    return lr.slope >= 0
+
+def accuracy_linear_regression_slope(t_now, t_then, voter_batch_accs):
+    """
+    Return the slope of linear regression done over the given window on the given accuracies. 
+
+    Args:
+        t_now (_type_): _description_
+        t_then (_type_): _description_
+        voter_batch_accs (_type_): _description_
+    """
+    if t_then < 0 or t_now >= len(voter_batch_accs) or t_then >= t_now:
+        return 0
+    recent_accs = voter_batch_accs[t_then:t_now+1]
+    lr = stats.linregress(range(len(recent_accs)), recent_accs)
+    # print(f"Lin Regression result is {lr}")
+    return lr.slope
 
 
 def wilson_score_interval(self, point_wise_accuracies, confidence=0.99999):

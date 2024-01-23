@@ -1,4 +1,5 @@
-from . import learning_utils
+from matplotlib.pyplot import tick_params
+import learning_utils
 
 
 class Experiment:
@@ -9,11 +10,11 @@ class Experiment:
     def __init__(self, n_trials, ensembles):
         self.window_size = 10
         self.batch_size = 128
-        # train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-        self.train_digit_groups = [
-            [0, 1, 2, 3, 4, 5, 6, 7, 8],
-            [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        ]
+        self.train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+        # self.train_digit_groups = [
+        #     [0, 1, 2, 3, 4, 5, 6, 7, 8],
+        #     [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        # ]
         self.test_digit_groups = [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
 
         self.train_data_loader, self.train_splits = learning_utils.create_mnist_loaders(
@@ -41,6 +42,8 @@ class Experiment:
         for t in range(self.n_trials):
             self.single_trial(t)
 
+        return self.batch_metric_values
+
     def single_trial(self, trial_num):
         """
         Run a single trial of this Experiment. Generate relevant ensembles, train them, and save measurements about their performance.
@@ -57,13 +60,18 @@ class Experiment:
         Does that cover our use cases?
         So we can have a delegation mechanism that delegates all the time, another that delegates only during testing, 
         another that delegates differently during training and testing, etc.
-
         """
 
         # 2 - Incrementally train each ensemble, as applicable.
         # Over each increment of data, train each ensemble on that increment.
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
+        batch_idx = 0
+        current_digit_group = 0
         for images, labels in self.train_data_loader:
+            batch_idx += 1
+            if batch_idx in self.train_splits:
+                print(f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}")
+                current_digit_group += 1
             for ensemble in self.ensembles:
                 # Train on a batch of data
                 ensemble.learn_batch(images, labels)
@@ -81,7 +89,9 @@ class Experiment:
                     metric_name="batch_train_acc",
                 )
                 ensemble.update_delegations(
-                    accs=train_acc_history, train=True
+                    accs=train_acc_history,
+                    train=True,
+                    t_increment=1
                 )  # For ucb, if train is true dont do anything. We want to train all clfs
 
         print("Finished training. Starting testing.")
@@ -94,8 +104,8 @@ class Experiment:
                 # # Train on a batch of data -- probably shouldn't during testing?
                 # ensemble.learn_batch(images, labels)
 
-                # t_increment is the number of samples in the current batch
-                t_increment = len(images)
+                # # t_increment is the number of samples in the current batch
+                # t_increment = len(images)
 
                 # Record performance
                 test_acc = ensemble.score(
@@ -110,7 +120,9 @@ class Experiment:
                     ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc"
                 )
                 ensemble.update_delegations(
-                    accs=test_acc_history, train=False, t_increment=t_increment
+                    accs=test_acc_history,
+                    train=False,
+                    t_increment=1
                 )
 
         print(self.batch_metric_values)

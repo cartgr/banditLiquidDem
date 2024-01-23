@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
-from .learning import Net
-from .Voter import Voter
+from learning import Net
+from Voter import Voter
 import random
 
 
@@ -151,6 +151,10 @@ class Ensemble:
         Have each voter learn a single batch of data. Should be able to be used during training or testing?
         """
         for voter in self.voters:
+            if not self.delegation_mechanism.voter_is_active(voter):
+                # Do not train voters while they're delegating
+                continue
+
             for _ in range(voter.training_epochs):
                 images, labels = X.to(self.device), y.to(self.device)
                 voter.optimizer.zero_grad()

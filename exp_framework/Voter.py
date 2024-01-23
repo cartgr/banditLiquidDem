@@ -51,3 +51,17 @@ class Voter:
 
     def __repr__(self):
         return "Voter " + str(self.id)
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return self.id == other.id
+        elif isinstance(other, int):
+            return self.id == other
+        else:
+            return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+    
+    def __hash__(self) -> int:
+        return self.id
