@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import stats
+import Voter
 
 
 class DelegationMechanism:
@@ -18,6 +19,9 @@ class DelegationMechanism:
             to_id (_type_): _description_
         """
         self.delegations[from_id] = to_id
+
+    def is_voter_active(self, v: Voter):
+        return v in self.delegations
 
     # def calculate_CI(self, voter):
     # Seems unused? - commented for now in case this breaks anything. Who needs Git...
@@ -123,6 +127,59 @@ class UCBDelegationMechanism(DelegationMechanism):
                     probabilities = [gap / sum_gaps for gap in gaps]
                     delegee = np.random.choice(possible_delegees, p=probabilities)
                     self.delegate(voter, delegee)
+
+
+class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
+
+    def __init__(self, batch_size, max_active_voters=1, window_size=None, t_between_delegation=3):
+        
+        self.max_active_voters = max_active_voters
+        self.t_between_delegation = t_between_delegation    # minimum number of timesteps that should pass between any delegations
+        self.most_recent_delegation_time = 0
+
+        super().__init__(batch_size, window_size)
+
+
+    def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
+
+        for v in voters:
+            num_active_voters = self.get_gurus()
+
+            if self.is_voter_active(v):
+                '''
+                If acc_v is high and staying high compared with previous time steps:
+                    v stays active by doing nothing
+                If acc_v is high and falling compared with previous time steps:
+                    v should delegate
+                        maybe select the least accurate classifier to maximize chance it is untrained?
+                        or, set a flag to make v delegate and then if any other classifier is already quite high accuracy let them be active?
+                If acc_v is low (shouldn't happen?):
+                    v should delegate
+                '''
+                if ensemble_accs[v.id] > 1:
+                    pass
+                elif ensemble_accs[v.id] < 1:
+                    pass
+                elif ensemble_accs[v.id] < 0:
+                    pass
+            else:   # v is inactive, we rely on all voters always tracking their score
+                '''
+                if acc_v is low and not improving:
+                    v should remain inactive by doing nothing
+                if acc_v is high and not changing:
+                    for now, do nothing.
+                    later, maybe consider acc_v in comparison to group accuracy or something
+                if acc_v is low and improving:
+                    v should become active (this probably means the classifier is already trained?)
+                '''
+                if ensemble_accs[v.id] > 1:
+                    pass
+                elif ensemble_accs[v.id] < 1:
+                    pass
+                elif ensemble_accs[v.id] < 0:
+                    pass
+
+        return super().update_delegations(ensemble_accs, voters, train, t_increment)
 
 
 def wilson_score_interval(self, point_wise_accuracies, confidence=0.99999):

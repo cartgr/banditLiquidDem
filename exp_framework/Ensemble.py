@@ -131,7 +131,7 @@ class Ensemble:
         If record_pointwise_accs is True, then record the accuracy of each guru on each example.
         Otherwise only batch accuracies are recorded for each voter.
         """
-        # Track accuracy within each voter (even delegating ones(?))
+        # Track accuracy within each voter (even delegating ones)
         # TODO: Super inefficient, making each voter predict twice on the same data :/
         for voter in self.voters:
             voter.score(X, y)
