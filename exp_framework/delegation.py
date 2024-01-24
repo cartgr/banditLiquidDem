@@ -158,6 +158,7 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
         
         # Each voter should delegate so that only max_active_voters remain active
         # Assumes all voters have consecutive ids :/
+        self.untrained_voters = [i for i in range(max_active_voters, num_voters)]
         for from_id in range(max_active_voters, num_voters):
             to_id = from_id % max_active_voters
             self.add_delegation(from_id=from_id, to_id=to_id)
@@ -201,19 +202,26 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                     v should become active (this probably means the classifier is already trained?)
                 '''
                 inactive_voters.append(v)
-        # sort inactive voters by ascending accuracy to maximize chance of getting an untrained clf
-        inactive_voters.sort(key=lambda x: x.batch_accuracies[-1])
-        # # sort inactive voters by descending accuracy; minimizes duplicate training?
-        # inactive_voters.sort(key=lambda x: x.batch_accuracies[-1], reverse=True)
+
+        
+        # # sort inactive voters by ascending accuracy to maximize chance of getting an untrained clf
+        # inactive_voters.sort(key=lambda x: x.batch_accuracies[-1])
+        # sort inactive voters by descending accuracy; minimizes duplicate training in case of repeated classes?
+        inactive_voters.sort(key=lambda x: x.batch_accuracies[-1], reverse=True)
+        potential_guru_ids = self.untrained_voters + [ia.id for ia in inactive_voters]
 
         # Have each delegating voter delegate to the next least accurate delegator
         for i in range(len(should_delegate)):
 
-            new_guru = inactive_voters[i]
+            # new_guru = inactive_voters[i]
+            new_guru = potential_guru_ids[i]
             new_delegator = should_delegate[i]
             
-            self.remove_delegation(new_guru.id)
-            self.add_delegation(new_delegator.id, new_guru.id)
+            self.remove_delegation(new_guru)
+            self.add_delegation(new_delegator.id, new_guru)
+            
+            if new_guru in self.untrained_voters:
+                self.untrained_voters.remove(new_guru)
 
 
         return super().update_delegations(ensemble_accs, voters, train, t_increment)

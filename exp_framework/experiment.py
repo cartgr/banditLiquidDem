@@ -15,7 +15,9 @@ class Experiment:
         #     [0, 1, 2, 3, 4, 5, 6, 7, 8],
         #     [1, 2, 3, 4, 5, 6, 7, 8, 9]
         # ]
-        self.test_digit_groups = [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+        # self.test_digit_groups = [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
+        self.test_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+        self.test_digit_groups = [[2, 3], [0, 1], [8, 9], [4, 5], [6, 7]]
 
         self.train_data_loader, self.train_splits = learning_utils.create_mnist_loaders(
             digit_groups=self.train_digit_groups, batch_size=self.batch_size, train=True
@@ -81,6 +83,9 @@ class Experiment:
                 self.add_batch_metric_value(
                     ensemble, trial_num, "batch_train_acc", train_acc
                 )
+                self.add_batch_metric_value(
+                    ensemble, trial_num, "active_voters-train", [g.id for g in ensemble.delegation_mechanism.get_gurus(ensemble.voters)]
+                )
 
                 # Delegate
                 train_acc_history = self.get_batch_metric_value(
@@ -113,6 +118,9 @@ class Experiment:
                 )  # we need to record guru pointwise accs on the test set for ucb delegation
                 self.add_batch_metric_value(
                     ensemble, trial_num, "batch_test_acc", test_acc
+                )
+                self.add_batch_metric_value(
+                    ensemble, trial_num, "active_voters-test", [g.id for g in ensemble.delegation_mechanism.get_gurus(ensemble.voters)]
                 )
 
                 # Delegate

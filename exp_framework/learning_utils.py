@@ -36,10 +36,11 @@ def create_mnist_loaders(digit_groups, batch_size=128, train=True):
     split_indices = []
     for loader in loaders:
         test_loader += list(loader)
-        if len(split_indices) == 0:
-            split_indices.append(len(test_loader))
-        else:
-            split_indices.append(split_indices[-1] + len(test_loader))
+        split_indices.append(len(test_loader))
+        # if len(split_indices) == 0:
+        #     split_indices.append(len(test_loader))
+        # else:
+        #     split_indices.append(split_indices[-1] + len(test_loader))
 
     return whole_loader, split_indices
     # return loaders, split_indices
