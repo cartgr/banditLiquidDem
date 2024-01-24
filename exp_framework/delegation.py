@@ -77,7 +77,7 @@ class DelegationMechanism:
             # if delegations[voter] == guru:
             #     weight += self.count_guru_weight(voter, delegations)
         return weight
-    
+
     def get_guru_of_voter(self, v_id):
         # Recursively trace through delegations until the guru of this voter is found.
         # A voter is a guru if they do not appear as a key in self.delegations
@@ -104,12 +104,16 @@ class UCBDelegationMechanism(DelegationMechanism):
             return
             # say we have 10 voters and somehow we know there are 2 digit groups (0-4, 5-9)
             # we want to train 5 voters per digit group
-            
+
         else:
             # first, we need to recalculate the CI for each voter
             for voter in voters:
                 voter.ucb_score = ucb(
-                    self.window_size, voter, self.t, self.ucb_window_size
+                    self.window_size,
+                    voter,
+                    self.t,
+                    self.ucb_window_size,
+                    self.batch_size,
                 )
 
             print("Delegations: ", self.delegations)
@@ -147,15 +151,20 @@ class UCBDelegationMechanism(DelegationMechanism):
 
 
 class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
-
-    def __init__(self, batch_size, num_voters, max_active_voters=1, window_size=None, t_between_delegation=3):
-        
+    def __init__(
+        self,
+        batch_size,
+        num_voters,
+        max_active_voters=1,
+        window_size=None,
+        t_between_delegation=3,
+    ):
         super().__init__(batch_size, window_size)
 
         self.max_active_voters = max_active_voters
-        self.t_between_delegation = t_between_delegation    # minimum number of timesteps that should pass between any delegations
+        self.t_between_delegation = t_between_delegation  # minimum number of timesteps that should pass between any delegations
         self.most_recent_delegation_time = 0
-        
+
         # Each voter should delegate so that only max_active_voters remain active
         # Assumes all voters have consecutive ids :/
         self.untrained_voters = [i for i in range(max_active_voters, num_voters)]
@@ -163,16 +172,14 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
             to_id = from_id % max_active_voters
             self.add_delegation(from_id=from_id, to_id=to_id)
 
-
     def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
-
         should_delegate = []
         inactive_voters = []
         for v in voters:
             # num_active_voters = self.get_gurus()
 
             if self.voter_is_active(v):
-                '''
+                """
                 If acc_v is high and staying high compared with previous time steps:
                     v stays active by doing nothing
                 If acc_v is high and falling compared with previous time steps:
@@ -181,18 +188,24 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                         or, set a flag to make v delegate and then if any other classifier is already quite high accuracy let them be active?
                 If acc_v is low (shouldn't happen?):
                     v should delegate
-                '''
+                """
                 # if voter_has_improved_linreg(t_now=self.t, t_then=self.t - self.window_size, voter_batch_accs=v.batch_accuracies):
-                slope = accuracy_linear_regression_slope(t_now=self.t, t_then=self.t - self.window_size, voter_batch_accs=v.batch_accuracies)
+                slope = accuracy_linear_regression_slope(
+                    t_now=self.t,
+                    t_then=self.t - self.window_size,
+                    voter_batch_accs=v.batch_accuracies,
+                )
                 # print(f"Linear regression slope is: {slope} at time {self.t}")
                 if slope > -0.1:
                     # voter should remain active if they are continuing to learn
                     pass
                 else:
-                    print(f"Linear regression slope is: {slope} at time {self.t} so {v} is delegating.")
+                    print(
+                        f"Linear regression slope is: {slope} at time {self.t} so {v} is delegating."
+                    )
                     should_delegate.append(v)
-            else:   # v is inactive, we rely on all voters always tracking their score
-                '''
+            else:  # v is inactive, we rely on all voters always tracking their score
+                """
                 if acc_v is low and not improving:
                     v should remain inactive by doing nothing
                 if acc_v is high and not changing:
@@ -200,10 +213,9 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                     later, maybe consider acc_v in comparison to group accuracy or something
                 if acc_v is low and improving:
                     v should become active (this probably means the classifier is already trained?)
-                '''
+                """
                 inactive_voters.append(v)
 
-        
         # # sort inactive voters by ascending accuracy to maximize chance of getting an untrained clf
         # inactive_voters.sort(key=lambda x: x.batch_accuracies[-1])
         # sort inactive voters by descending accuracy; minimizes duplicate training in case of repeated classes?
@@ -212,17 +224,15 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
 
         # Have each delegating voter delegate to the next least accurate delegator
         for i in range(len(should_delegate)):
-
             # new_guru = inactive_voters[i]
             new_guru = potential_guru_ids[i]
             new_delegator = should_delegate[i]
-            
+
             self.remove_delegation(new_guru)
             self.add_delegation(new_delegator.id, new_guru)
-            
+
             if new_guru in self.untrained_voters:
                 self.untrained_voters.remove(new_guru)
-
 
         return super().update_delegations(ensemble_accs, voters, train, t_increment)
 
@@ -241,6 +251,7 @@ def voter_has_improved(t_now, t_then, voter_batch_accs):
         return False
     return voter_batch_accs[t_now] > voter_batch_accs[t_then]
 
+
 def voter_has_improved_linreg(t_now, t_then, voter_batch_accs):
     """
     Return True iff this voter's accuracy is trending upwards. Return False if the voter's accuracy is trending
@@ -252,14 +263,15 @@ def voter_has_improved_linreg(t_now, t_then, voter_batch_accs):
     """
     if t_then < 0 or t_now >= len(voter_batch_accs) or t_then >= t_now:
         return False
-    recent_accs = voter_batch_accs[t_then:t_now+1]
+    recent_accs = voter_batch_accs[t_then : t_now + 1]
     lr = stats.linregress(range(len(recent_accs)), recent_accs)
     # print(f"Lin Regression result is {lr}")
     return lr.slope >= 0
 
+
 def accuracy_linear_regression_slope(t_now, t_then, voter_batch_accs):
     """
-    Return the slope of linear regression done over the given window on the given accuracies. 
+    Return the slope of linear regression done over the given window on the given accuracies.
 
     Args:
         t_now (_type_): _description_
@@ -268,7 +280,7 @@ def accuracy_linear_regression_slope(t_now, t_then, voter_batch_accs):
     """
     if t_then < 0 or t_now >= len(voter_batch_accs) or t_then >= t_now:
         return 0
-    recent_accs = voter_batch_accs[t_then:t_now+1]
+    recent_accs = voter_batch_accs[t_then : t_now + 1]
     lr = stats.linregress(range(len(recent_accs)), recent_accs)
     # print(f"Lin Regression result is {lr}")
     return lr.slope
@@ -290,16 +302,21 @@ def wilson_score_interval(self, point_wise_accuracies, confidence=0.99999):
     return ((left - right) / under, (left + right) / under)
 
 
-def ucb(window_size, voter, t, ucb_window_size, c=3.0):
+def ucb(window_size, voter, t, ucb_window_size, batch_size, c=3.0):
     """
     Calculate upper confidence bound of the bandit arm corresponding to voting directly. Loosely speaking, if this
     is high enough the voter will vote directly.
     point_wise_accuracies is the number of samples this voter has taken, i.e. n_i in UCB terms
     t is the total number of samples taken by any agent, i.e. N in UCB terms
 
-    To be clear, window_size is used for the mean calculation, and ucb_window_size is used for the ucb bonus (decoupled bonus from mean)
+    To be clear, window_size is used for the mean calculation, and ucb_window_size is used for the ucb bonus (decoupled bonus from mean).
+    So the mean could be calculated over the last 1000 samples, but the ucb bonus could be based on the number of times the voter was active in the last 500 samples.
 
+    :param window_size: number of batches to use for calculating the mean
+    :param voter: voter to calculate ucb for
     :param t: number of time steps passed
+    :param ucb_window_size: number of batches to use for calculating the ucb bonus
+    :param batch_size: number of samples per batch
     :param c: exploration term; higher means more exploration/higher chance of voting directly (?)
     """
     if window_size is None:  # Using the full point wise accuracies
@@ -310,18 +327,18 @@ def ucb(window_size, voter, t, ucb_window_size, c=3.0):
         mean = np.mean(point_wise_accuracies)  # mean accuracy/reward of arm pulls
     else:
         # get the most recent window_size predictions and take the mean
-        if len(voter.accuracy) < window_size:
+        if len(voter.accuracy) < window_size * batch_size:
             mean = np.mean(voter.accuracy)
         else:
-            mean = np.mean(voter.accuracy[-window_size:])
+            mean = np.mean(voter.accuracy[-window_size * batch_size :])
     if ucb_window_size is None:
-        total_t = t
+        total_t = t * batch_size
         n_t = len(voter.accuracy)
     elif t < ucb_window_size:
-        total_t = t
+        total_t = t * batch_size
         n_t = len(voter.accuracy)
     else:
-        total_t = ucb_window_size
+        total_t = ucb_window_size * batch_size
         n_t = sum(
             voter.binary_active[-ucb_window_size:]
         )  # number of arm pulls in the last ucb_window_size examples
