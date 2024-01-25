@@ -1,5 +1,5 @@
 from matplotlib.pyplot import tick_params
-import learning_utils
+from .learning_utils import *
 
 
 class Experiment:
@@ -7,24 +7,32 @@ class Experiment:
     A single Experiment class creates, trains, and compares several types of ensemble over multiple trials.
     """
 
-    def __init__(self, n_trials, ensembles):
+    def __init__(self, n_trials, ensembles, data):
         self.window_size = 10
         self.batch_size = 128
-        self.train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+        # self.train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+        self.train_digit_groups = data.train_digit_groups
         # self.train_digit_groups = [
         #     [0, 1, 2, 3, 4, 5, 6, 7, 8],
         #     [1, 2, 3, 4, 5, 6, 7, 8, 9]
         # ]
+        self.test_digit_groups = data.test_digit_groups
         # self.test_digit_groups = [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
         # self.test_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-        self.test_digit_groups = [[2, 3], [0, 1], [8, 9], [4, 5], [6, 7]]
+        # self.test_digit_groups = [[2, 3], [0, 1], [8, 9], [4, 5], [6, 7]]
+        # self.test_digit_groups = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
 
-        self.train_data_loader, self.train_splits = learning_utils.create_mnist_loaders(
-            digit_groups=self.train_digit_groups, batch_size=self.batch_size, train=True
-        )
-        self.test_data_loader, self.test_splits = learning_utils.create_mnist_loaders(
-            digit_groups=self.test_digit_groups, batch_size=self.batch_size, train=False
-        )
+        # self.train_data_loader, self.train_splits = learning_utils.create_mnist_loaders(
+        #     digit_groups=self.train_digit_groups, batch_size=self.batch_size, train=True
+        # )
+        # self.test_data_loader, self.test_splits = learning_utils.create_mnist_loaders(
+        #     digit_groups=self.test_digit_groups, batch_size=self.batch_size, train=False
+        # )
+
+        self.train_data_loader = data.train_data_loader
+        self.train_splits = data.train_splits
+        self.test_data_loader = data.test_data_loader
+        self.test_splits = data.test_splits
 
         self.ensembles = ensembles
         self.n_trials = n_trials
@@ -72,19 +80,29 @@ class Experiment:
         for images, labels in self.train_data_loader:
             batch_idx += 1
             if batch_idx in self.train_splits:
-                print(f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}")
+                print(
+                    f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}"
+                )
                 current_digit_group += 1
-            for ensemble in self.ensembles:
+            for ensemble in self.ensembles:  # TODO: use train_models from ensemble.py?
                 # Train on a batch of data
                 ensemble.learn_batch(images, labels)
 
                 # Record performance - do this before any delegation so there's at least some data
-                train_acc = ensemble.score(images, labels)
+                train_acc = ensemble.score(images, labels, record_pointwise_accs=False)
                 self.add_batch_metric_value(
                     ensemble, trial_num, "batch_train_acc", train_acc
                 )
                 self.add_batch_metric_value(
-                    ensemble, trial_num, "active_voters-train", [g.id for g in ensemble.delegation_mechanism.get_gurus(ensemble.voters)]
+                    ensemble,
+                    trial_num,
+                    "active_voters-train",
+                    [
+                        g.id
+                        for g in ensemble.delegation_mechanism.get_gurus(
+                            ensemble.voters
+                        )
+                    ],
                 )
 
                 # Delegate
@@ -94,9 +112,7 @@ class Experiment:
                     metric_name="batch_train_acc",
                 )
                 ensemble.update_delegations(
-                    accs=train_acc_history,
-                    train=True,
-                    t_increment=1
+                    accs=train_acc_history, train=True, t_increment=1
                 )  # For ucb, if train is true dont do anything. We want to train all clfs
 
         print("Finished training. Starting testing.")
@@ -120,7 +136,15 @@ class Experiment:
                     ensemble, trial_num, "batch_test_acc", test_acc
                 )
                 self.add_batch_metric_value(
-                    ensemble, trial_num, "active_voters-test", [g.id for g in ensemble.delegation_mechanism.get_gurus(ensemble.voters)]
+                    ensemble,
+                    trial_num,
+                    "active_voters-test",
+                    [
+                        g.id
+                        for g in ensemble.delegation_mechanism.get_gurus(
+                            ensemble.voters
+                        )
+                    ],
                 )
 
                 # Delegate
@@ -128,9 +152,7 @@ class Experiment:
                     ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc"
                 )
                 ensemble.update_delegations(
-                    accs=test_acc_history,
-                    train=False,
-                    t_increment=1
+                    accs=test_acc_history, train=False, t_increment=1
                 )
 
         print(self.batch_metric_values)

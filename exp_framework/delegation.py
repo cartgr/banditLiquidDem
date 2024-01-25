@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import stats
-import Voter
+from .Voter import *
 
 
 class DelegationMechanism:

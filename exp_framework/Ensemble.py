@@ -1,8 +1,10 @@
 import torch
 from tqdm import tqdm
-from learning import Net
-from Voter import Voter
+from .learning import Net
+from .Voter import Voter
+from .data_utils import Data
 import random
+from torch.utils.data import DataLoader, Subset, ConcatDataset
 
 
 class Ensemble:
@@ -279,4 +281,151 @@ class Ensemble:
             liquid_dem_vote_accs,
             liquid_dem_weighted_vote_accs,
             full_ensemble_accs,
+        )
+
+
+class PretrainedEnsemble(Ensemble):
+    def __init__(
+        self,
+        # pretrained_voters,  # List of pretrained Voter instances
+        n_voters,
+        delegation_mechanism,
+        name=None,
+        input_dim=28 * 28,  # for mnist
+        output_dim=10,  # for mnist
+    ):
+        super().__init__(
+            training_epochs=None,  # Not needed for pretrained models
+            n_voters=n_voters,
+            delegation_mechanism=delegation_mechanism,
+            name=name,
+            input_dim=input_dim,
+            output_dim=output_dim,
+        )
+        # self.voters = pretrained_voters
+
+    def do_pretaining(self, data: Data):
+        """
+        Train each voter on an approprate subset of the training data.
+
+        The Data object has the train_loader and the train splits which we will use to determine which data to train each clf on.
+        We will initialize the voters in this method as well.
+
+        Args:
+            data: Data instance
+            assignments: Dict mapping each voter to a list of digit groups to train on. If None, then split the data evenly.
+        """
+        # initialize n voters
+        for id in range(self.n_voters):
+            model = Net(input_dim=self.input_dim, output_dim=self.output_dim).to(
+                self.device
+            )
+            self.voters.append(
+                Voter(
+                    model,
+                    # train_loader,
+                    self.training_epochs,
+                    id,
+                )
+            )
+
+        # split voters evenly across digit groups for now
+        # TODO: Allow for more flexible assignments
+        assignments = dict()
+        for voter in self.voters:
+            assignments[voter.id] = data.train_digit_group_loaders[
+                voter.id % len(data.train_digit_group_loaders)
+            ]
+
+        # train each voter on their assigned loaders
+        for voter in self.voters:
+            for images, labels in assignments[voter.id]:
+                images, labels = images.to(self.device), labels.to(self.device)
+                voter.optimizer.zero_grad()
+                logits = voter.model(images)
+                loss = voter.criterion(logits, labels)
+                loss.backward()
+                voter.optimizer.step()
+
+    def initialize_voters(
+        self,
+    ):
+        return
+
+    def train_models(self):
+        return
+
+    def predict(self, X, y, record_pointwise_accs=False):
+        """
+        Make predictions on the given examples.
+
+        y is only used if record_pointwise_accs is True, in which case the accuracy of each guru on each example is recorded.
+
+        """
+        # gurus = self.get_gurus()
+        gurus_and_weights = self.delegation_mechanism.get_gurus_with_weights(
+            self.voters
+        )
+        # print("ensemble predict method is not incorporating weight")
+        all_preds = []
+        for guru, weight in gurus_and_weights.items():
+            predictions = guru.predict(X)
+            # if a guru has weight 2, append their predictions twice, etc.
+            for i in range(weight):
+                all_preds.append(predictions)
+
+            # append len(X) 1s to guru.binary_active because all gurus are active on all examples
+            guru.binary_active.extend([1] * len(X))
+
+            if record_pointwise_accs:
+                point_wise_accuracies = (predictions == y).float().tolist()
+                guru.accuracy.extend(point_wise_accuracies)
+
+        # for each voter that is not a guru, append len(X) 0s to their binary_active list
+        # they are not active on any of the examples
+        # TODO: Verify that "if voter not in gurus" will actually work?
+        for voter in self.voters:
+            if voter not in gurus_and_weights.keys():
+                voter.binary_active.extend([0] * len(X))
+
+        all_preds = torch.stack(all_preds).transpose(0, 1)
+        all_preds = torch.mode(all_preds, dim=1)[0]
+
+        return all_preds
+
+    def score(self, X, y, record_pointwise_accs=False):
+        """
+        If record_pointwise_accs is True, then record the accuracy of each guru on each example.
+        Otherwise only batch accuracies are recorded for each voter.
+        """
+        # Track accuracy within each voter (even delegating ones)
+        # TODO: Super inefficient, making each voter predict twice on the same data :/
+        for voter in self.voters:
+            voter.score(X, y)
+
+        # Compute whole ensemble accuracy
+        predictions = self.predict(X, y, record_pointwise_accs=record_pointwise_accs)
+        acc = (predictions == y).float().mean().item()
+
+        return acc
+
+    def get_gurus(self):
+        """ """
+        return self.delegation_mechanism.get_gurus(self.voters)
+
+    def learn_batch(self, X, y):
+        return
+
+    def update_delegations(self, accs, train, t_increment=None):
+        """
+        Allow each voter to update their delegations, as applicable.
+
+        Args:
+            accs (list): full history of ensemble batch accuracies
+            train (bool): True iff in training phase, False iff in testing phase. Hopefully those are the only possibilities...
+        """
+        if train:
+            return
+        self.delegation_mechanism.update_delegations(
+            accs, self.voters, train, t_increment
         )

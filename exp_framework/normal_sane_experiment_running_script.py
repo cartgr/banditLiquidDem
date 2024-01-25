@@ -4,12 +4,21 @@ from delegation import DelegationMechanism, RestrictedMaxGurusUCBDelegationMecha
 from experiment import Experiment
 import matplotlib.pyplot as plt
 import numpy as np
+from .data_utils import Data
 
 print("Starting!")
 
 batch_size = 128
 window_size = 10
 n_voters = 10
+
+
+data = Data(
+    data_set_name="mnist",
+    train_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
+    test_digit_groups=[[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]],
+    batch_size=batch_size,
+)
 
 # del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
 del_mech = RestrictedMaxGurusUCBDelegationMechanism(
@@ -20,8 +29,8 @@ del_mech = RestrictedMaxGurusUCBDelegationMechanism(
     t_between_delegation=3,
 )
 
-
 print("Creating Experiment")
+
 
 ensembles = [
     Ensemble(
@@ -34,7 +43,7 @@ ensembles = [
     )
 ]
 
-exp = Experiment(n_trials=1, ensembles=ensembles)
+exp = Experiment(n_trials=1, ensembles=ensembles, data=data)
 batch_metric_values = exp.run()
 
 ####
