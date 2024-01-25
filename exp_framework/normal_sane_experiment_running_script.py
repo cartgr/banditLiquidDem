@@ -4,7 +4,7 @@ from delegation import DelegationMechanism, RestrictedMaxGurusUCBDelegationMecha
 from experiment import Experiment
 import matplotlib.pyplot as plt
 import numpy as np
-from .data_utils import Data
+from data_utils import Data
 
 print("Starting!")
 

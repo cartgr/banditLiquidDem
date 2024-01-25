@@ -1,5 +1,6 @@
 from matplotlib.pyplot import tick_params
 from .learning_utils import *
+import numpy as np
 
 
 class Experiment:
@@ -216,3 +217,37 @@ class Experiment:
         if metric_name not in self.batch_metric_values:
             self.batch_metric_values[metric_name] = []
         self.batch_metric_values[metric_name].append(metric_value)
+
+
+def calculate_avg_std_test_accs(exp, ensemble_name, n_trials):
+    """
+    Calculate average and standard deviation of test accuracies for a given number of trials.
+
+    :param exp: The experiment object containing batch metric values.
+    :param ensemble_name: The name of the ensemble to calculate metrics for.
+    :param n_trials: The number of trials to include in the calculation.
+    :return: A tuple of two lists - average accuracies and standard deviations.
+    """
+    avg_test_accs = []
+    std_test_accs = []
+
+    # Initialize a list to collect all test accuracies for each batch
+    all_test_accs = [
+        []
+        for _ in range(len(exp.batch_metric_values[ensemble_name][0]["batch_test_acc"]))
+    ]
+
+    # Iterate over each trial and collect test accuracies
+    for trial in range(n_trials):
+        trial_test_accs = exp.batch_metric_values[ensemble_name][trial][
+            "batch_test_acc"
+        ]
+        for i, acc in enumerate(trial_test_accs):
+            all_test_accs[i].append(acc)
+
+    # Calculate average and standard deviation for each batch
+    for batch_accs in all_test_accs:
+        avg_test_accs.append(np.mean(batch_accs))
+        std_test_accs.append(np.std(batch_accs))
+
+    return avg_test_accs, std_test_accs
