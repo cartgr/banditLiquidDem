@@ -27,7 +27,7 @@ class DelegationMechanism:
 
     def voter_is_active(self, v: Voter):
         # Voter v is delegating if they are NOT making a delegation. That is, if they are not a key in the delegation dict.
-        return v.id not in self.delegations
+        return v.id not in self.delegations.keys()
 
     # def calculate_CI(self, voter):
     # Seems unused? - commented for now in case this breaks anything. Who needs Git...
@@ -192,7 +192,7 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                 # if voter_has_improved_linreg(t_now=self.t, t_then=self.t - self.window_size, voter_batch_accs=v.batch_accuracies):
                 slope = accuracy_linear_regression_slope(
                     t_now=self.t,
-                    t_then=self.t - self.window_size,
+                    t_before=self.t - self.window_size,
                     voter_batch_accs=v.batch_accuracies,
                 )
                 # print(f"Linear regression slope is: {slope} at time {self.t}")
@@ -237,6 +237,64 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
         return super().update_delegations(ensemble_accs, voters, train, t_increment)
 
 
+class ProbaSlopeDelegationMechanism(DelegationMechanism):
+    """
+    On each batch, we check the slope
+    Voters can only delegate to other voters who have a higher slope
+    Delegation is probabilistic based on the difference in slope
+    """
+
+    def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
+        if train:
+            # First we will calculate all slopes
+            slopes = dict()
+            for voter in voters:
+                slopes[voter.id] = accuracy_linear_regression_slope(
+                    t_now=self.t,
+                    t_before=self.t - self.window_size,
+                    voter_batch_accs=voter.batch_accuracies,
+                )
+                # print(self.t)
+
+            # now we need to do two things:
+            # 1. ensure all current delegations are still valid. If not, remove them
+            # 2. go through the full delegation process
+            delegators_to_pop = []
+            for (
+                delegator,
+                delegee,
+            ) in self.delegations.items():
+                if slopes[delegator.id] > slopes[delegee.id]:
+                    delegators_to_pop.append(delegator)
+            for delegator in delegators_to_pop:
+                self.delegations.pop(delegator)
+
+            for voter in voters:  # go through the full delegation process
+                possible_delegees = []
+                gaps = []
+                for other_voter in voters:
+                    # find all other voters who have a higher slope
+                    if other_voter.id != voter.id and (
+                        slopes[other_voter.id] > slopes[voter.id]
+                    ):
+                        possible_delegees.append(other_voter)
+                        gaps.append(slopes[other_voter.id] - slopes[voter.id])
+                if len(possible_delegees) > 0:
+                    # probabilistically delegate based on the gaps
+                    # larger gaps are more likely to be chosen
+                    sum_gaps = sum(gaps)
+                    probabilities = [gap / sum_gaps for gap in gaps]
+                    delegee = np.random.choice(possible_delegees, p=probabilities)
+                    self.add_delegation(voter, delegee)
+
+        else:
+            # break all delegations
+            self.delegations = dict()
+
+        if t_increment:
+            self.t += t_increment
+
+
 def voter_has_improved(t_now, t_then, voter_batch_accs):
     """
     Return True iff this voter is more accurate than it was at the given time. Return False if the voter is not more accurate
@@ -269,7 +327,7 @@ def voter_has_improved_linreg(t_now, t_then, voter_batch_accs):
     return lr.slope >= 0
 
 
-def accuracy_linear_regression_slope(t_now, t_then, voter_batch_accs):
+def accuracy_linear_regression_slope(t_now, t_before, voter_batch_accs):
     """
     Return the slope of linear regression done over the given window on the given accuracies.
 
@@ -278,9 +336,29 @@ def accuracy_linear_regression_slope(t_now, t_then, voter_batch_accs):
         t_then (_type_): _description_
         voter_batch_accs (_type_): _description_
     """
-    if t_then < 0 or t_now >= len(voter_batch_accs) or t_then >= t_now:
+    if t_before < 0 or t_now >= len(voter_batch_accs) or t_before >= t_now:
         return 0
-    recent_accs = voter_batch_accs[t_then : t_now + 1]
+    recent_accs = voter_batch_accs[t_before : t_now + 1]
+    lr = stats.linregress(range(len(recent_accs)), recent_accs)
+    # print(f"Lin Regression result is {lr}")
+    return lr.slope
+
+
+def get_batch_accuracy_slope(t_now, t_before, voter_batch_accs):
+    """
+    Return the slope of linear regression done over the given window on the given accuracies.
+
+    NOTE: Same as Ben's above aside from changing the t_now >= len(voter_batch_accs) to t_now > len(voter_batch_accs)
+    NOTE: Just realized it depends on when you update t by t_increment in update_delegations
+
+    Args:
+        t_now (_type_): _description_
+        t_then (_type_): _description_
+        voter_batch_accs (_type_): _description_
+    """
+    if t_before < 0 or t_now > len(voter_batch_accs) or t_before >= t_now:
+        return 0
+    recent_accs = voter_batch_accs[t_before : t_now + 1]
     lr = stats.linregress(range(len(recent_accs)), recent_accs)
     # print(f"Lin Regression result is {lr}")
     return lr.slope

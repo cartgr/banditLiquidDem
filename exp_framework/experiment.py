@@ -251,3 +251,39 @@ def calculate_avg_std_test_accs(exp, ensemble_name, n_trials):
         std_test_accs.append(np.std(batch_accs))
 
     return avg_test_accs, std_test_accs
+
+
+def calculate_avg_std_train_accs(exp, ensemble_name, n_trials):
+    """
+    Calculate average and standard deviation of train accuracies for a given number of trials.
+
+    :param exp: The experiment object containing batch metric values.
+    :param ensemble_name: The name of the ensemble to calculate metrics for.
+    :param n_trials: The number of trials to include in the calculation.
+    :return: A tuple of two lists - average accuracies and standard deviations.
+    """
+    avg_train_accs = []
+    std_train_accs = []
+
+    # Initialize a list to collect all train accuracies for each batch
+    all_train_accs = [
+        []
+        for _ in range(
+            len(exp.batch_metric_values[ensemble_name][0]["batch_train_acc"])
+        )
+    ]
+
+    # Iterate over each trial and collect train accuracies
+    for trial in range(n_trials):
+        trial_train_accs = exp.batch_metric_values[ensemble_name][trial][
+            "batch_train_acc"
+        ]
+        for i, acc in enumerate(trial_train_accs):
+            all_train_accs[i].append(acc)
+
+    # Calculate average and standard deviation for each batch
+    for batch_accs in all_train_accs:
+        avg_train_accs.append(np.mean(batch_accs))
+        std_train_accs.append(np.std(batch_accs))
+
+    return avg_train_accs, std_train_accs
