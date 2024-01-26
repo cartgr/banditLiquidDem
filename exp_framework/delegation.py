@@ -4,11 +4,12 @@ from .Voter import *
 
 
 class DelegationMechanism:
-    def __init__(self, batch_size, window_size=None):
+    def __init__(self, batch_size, window_size=None, verbose=False):
         self.delegations = {}  # key: delegate_from (id), value: delegate_to (id)
         self.t = 0
         self.window_size = window_size
         self.batch_size = batch_size
+        self.verbose = verbose
 
     def add_delegation(self, from_id, to_id):
         """
@@ -18,7 +19,8 @@ class DelegationMechanism:
             from_id (_type_): _description_
             to_id (_type_): _description_
         """
-        print(f"Making delegation from {from_id} to {to_id} at t={self.t}.")
+        if self.verbose:
+            print(f"Making delegation from {from_id} to {to_id} at t={self.t}.")
         self.delegations[from_id] = to_id
 
     def remove_delegation(self, v_id):

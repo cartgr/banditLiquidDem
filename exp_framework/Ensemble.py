@@ -128,6 +128,50 @@ class Ensemble:
 
         return all_preds
 
+    def predict_proba(self, X, y, record_pointwise_accs=False):
+        """
+        Make predictions on the given examples.
+        First, get the predicted probas from each guru, then sum them up and take the argmax.
+
+        y is only used if record_pointwise_accs is True, in which case the accuracy of each guru on each example is recorded.
+
+        """
+        gurus_and_weights = self.delegation_mechanism.get_gurus_with_weights(
+            self.voters
+        )
+
+        # get the predicted probas from each guru
+        all_probas = []
+        for guru, weight in gurus_and_weights.items():
+            probas = guru.predict_proba(X)
+            # if a guru has weight 2, append their predictions twice, etc.
+            for i in range(weight):
+                all_probas.append(probas)
+
+            # append len(X) 1s to guru.binary_active because all gurus are active on all examples
+            guru.binary_active.extend([1] * len(X))
+
+            if record_pointwise_accs:
+                # argmax of probas is the prediction
+                predictions = torch.argmax(probas, dim=1)
+                point_wise_accuracies = (predictions == y).float().tolist()
+                guru.accuracy.extend(point_wise_accuracies)
+
+        # for each voter that is not a guru, append len(X) 0s to their binary_active list
+        # they are not active on any of the examples
+
+        for voter in self.voters:
+            if voter not in gurus_and_weights.keys():
+                voter.binary_active.extend([0] * len(X))
+
+        all_probas = torch.stack(all_probas).transpose(0, 1)
+        # sum up the probas from each guru
+        all_probas = torch.sum(all_probas, dim=1)
+        # take the argmax of the summed probas
+        all_preds = torch.argmax(all_probas, dim=1)
+
+        return all_preds
+
     def score(self, X, y, record_pointwise_accs=False):
         """
         If record_pointwise_accs is True, then record the accuracy of each guru on each example.
@@ -139,7 +183,10 @@ class Ensemble:
             voter.score(X, y)
 
         # Compute whole ensemble accuracy
-        predictions = self.predict(X, y, record_pointwise_accs=record_pointwise_accs)
+        # predictions = self.predict(X, y, record_pointwise_accs=record_pointwise_accs)
+        predictions = self.predict_proba(
+            X, y, record_pointwise_accs=record_pointwise_accs
+        )
         acc = (predictions == y).float().mean().item()
 
         return acc
@@ -164,6 +211,9 @@ class Ensemble:
                 loss = voter.criterion(logits, labels)
                 loss.backward()
                 voter.optimizer.step()
+
+            # print(f"Voter {voter.id} is learning batch {self.delegation_mechanism.t}")
+            # print(f"using delegation mechanism {self.name}")
 
     def update_delegations(self, accs, train, t_increment=None):
         """

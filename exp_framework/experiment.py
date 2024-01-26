@@ -1,6 +1,7 @@
 from matplotlib.pyplot import tick_params
 from .learning_utils import *
 import numpy as np
+from tqdm import tqdm
 
 
 class Experiment:
@@ -8,7 +9,7 @@ class Experiment:
     A single Experiment class creates, trains, and compares several types of ensemble over multiple trials.
     """
 
-    def __init__(self, n_trials, ensembles, data):
+    def __init__(self, n_trials, ensembles, data, seed=42, verbose=False):
         self.window_size = 10
         self.batch_size = 128
         # self.train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
@@ -45,12 +46,18 @@ class Experiment:
         self.batch_metric_values = dict()
         self.experiment_metric_values = dict()
 
+        self.seed = seed
+        self.verbose = verbose
+
     def run(self):
         """
         Run all trials within this Experiment. During each trial: Generate new ensembles, train them, and save measurements about their
         performance.
         """
-        for t in range(self.n_trials):
+        for t in tqdm(range(self.n_trials)):
+            # Set seed for reproducibility
+            seed_everything(self.seed + t)
+
             self.single_trial(t)
 
         return self.batch_metric_values
@@ -60,6 +67,10 @@ class Experiment:
         Run a single trial of this Experiment. Generate relevant ensembles, train them, and save measurements about their performance.
         """
         # 1 - Get ensembles ready for a new trial
+        # print("Starting trial", trial_num)
+        # for ensemble in self.ensembles:
+        #     print("Delegations for ensemble", ensemble.name, "before trial", trial_num)
+        #     print(ensemble.delegation_mechanism.delegations)
 
         for ensemble in self.ensembles:
             ensemble.initialize_voters()
@@ -81,9 +92,10 @@ class Experiment:
         for images, labels in self.train_data_loader:
             batch_idx += 1
             if batch_idx in self.train_splits:
-                print(
-                    f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}"
-                )
+                if self.verbose:
+                    print(
+                        f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}"
+                    )
                 current_digit_group += 1
             for ensemble in self.ensembles:  # TODO: use train_models from ensemble.py?
                 # Train on a batch of data
@@ -116,7 +128,8 @@ class Experiment:
                     accs=train_acc_history, train=True, t_increment=1
                 )  # For ucb, if train is true dont do anything. We want to train all clfs
 
-        print("Finished training. Starting testing.")
+        if self.verbose:
+            print("Finished training. Starting testing.")
 
         # 3 - Test each ensemble on each increment of data, as applicable.
         # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
@@ -156,7 +169,8 @@ class Experiment:
                     accs=test_acc_history, train=False, t_increment=1
                 )
 
-        print(self.batch_metric_values)
+        if self.verbose:
+            print(self.batch_metric_values)
 
         return self.batch_metric_values
 
@@ -287,3 +301,17 @@ def calculate_avg_std_train_accs(exp, ensemble_name, n_trials):
         std_train_accs.append(np.std(batch_accs))
 
     return avg_train_accs, std_train_accs
+
+
+def seed_everything(seed=1234):
+    import random
+    import numpy as np
+    import torch
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+seed_everything(2)
