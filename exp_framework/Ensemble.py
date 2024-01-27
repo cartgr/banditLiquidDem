@@ -52,15 +52,9 @@ class Ensemble:
                     id,
                 )
             )
-        # for group in self.train_digit_groups:
-        #     for _ in range(self.models_per_train_digit_group):
-        #         model = Net().to(self.device)
-        #         voters.append(Voter(model,
-        #                             # train_loader,
-        #                             self.training_epochs,
-        #                             voter_id))
-        #         voter_id += 1
         self.voters = voters
+
+        self.delegation_mechanism.t = 0
 
     def train_models(self):
         """

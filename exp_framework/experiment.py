@@ -2,6 +2,10 @@ from matplotlib.pyplot import tick_params
 from .learning_utils import *
 import numpy as np
 from tqdm import tqdm
+import random
+import numpy as np
+import torch
+import os
 
 
 class Experiment:
@@ -56,7 +60,7 @@ class Experiment:
         """
         for t in tqdm(range(self.n_trials)):
             # Set seed for reproducibility
-            seed_everything(self.seed + t)
+            # seed_everything(self.seed + t)
 
             self.single_trial(t)
 
@@ -124,6 +128,12 @@ class Experiment:
                     trial_num=trial_num,
                     metric_name="batch_train_acc",
                 )
+
+                # if ensemble.name == "proba_slope_delegations":
+                #     print("Trial", trial_num)
+                #     print(len(train_acc_history))
+                #     print()
+
                 ensemble.update_delegations(
                     accs=train_acc_history, train=True, t_increment=1
                 )  # For ucb, if train is true dont do anything. We want to train all clfs
@@ -304,14 +314,10 @@ def calculate_avg_std_train_accs(exp, ensemble_name, n_trials):
 
 
 def seed_everything(seed=1234):
-    import random
-    import numpy as np
-    import torch
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-seed_everything(2)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)

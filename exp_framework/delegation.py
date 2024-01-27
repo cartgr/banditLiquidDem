@@ -248,14 +248,18 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
 
     def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
         if train:
+            # print(self.delegations)
             # First we will calculate all slopes
             slopes = dict()
             for voter in voters:
-                slopes[voter.id] = accuracy_linear_regression_slope(
+                slope = accuracy_linear_regression_slope(
                     t_now=self.t,
                     t_before=self.t - self.window_size,
                     voter_batch_accs=voter.batch_accuracies,
                 )
+
+                # print(f"Slope for voter {voter.id} at time {self.t}: ", slope)
+                slopes[voter.id] = slope
                 # print(self.t)
 
             # now we need to do two things:
@@ -291,7 +295,7 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
 
         else:
             # break all delegations
-            self.delegations = dict()
+            self.delegations = {}
 
         if t_increment:
             self.t += t_increment
