@@ -60,7 +60,7 @@ class Experiment:
         """
         for t in tqdm(range(self.n_trials)):
             # Set seed for reproducibility
-            # seed_everything(self.seed + t)
+            seed_everything(self.seed + t)
 
             self.single_trial(t)
 
@@ -93,6 +93,20 @@ class Experiment:
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
         batch_idx = 0
         current_digit_group = 0
+
+        # In your Experiment.single_trial method, or wherever the data loader is used
+
+        # for batch_idx, batch_data in enumerate(self.train_data_loader):
+        #     print(f"Batch {batch_idx}: Type of batch_data is {type(batch_data)}")
+        #     print(f"Batch {batch_idx}: Length of batch_data is {len(batch_data)}")
+        #     if isinstance(batch_data, list) and len(batch_data) == 3:
+        #         images, labels, task_id = batch_data
+        #         print(f"Batch {batch_idx}: Successfully unpacked images and labels")
+        #     else:
+        #         print(f"Batch {batch_idx}: Unable to unpack images and labels")
+        #         print(f"Batch {batch_idx}: batch_data is {batch_data}")
+        #         break  # Break out of the loop for debugging purposes
+
         for images, labels in self.train_data_loader:
             batch_idx += 1
             if batch_idx in self.train_splits:
@@ -313,11 +327,36 @@ def calculate_avg_std_train_accs(exp, ensemble_name, n_trials):
     return avg_train_accs, std_train_accs
 
 
+def calculate_avg_std_test_accs_per_trial(exp, ensemble_name, n_trials):
+    """
+    Calculate average and standard deviation of test accuracies for each trial.
+
+    :param exp: The experiment object containing batch metric values.
+    :param ensemble_name: The name of the ensemble to calculate metrics for.
+    :param n_trials: The number of trials to include in the calculation.
+    :return: A tuple of two lists - average accuracies and standard deviations for each trial.
+    """
+    avg_test_accs_per_trial = []
+    std_test_accs_per_trial = []
+
+    # Iterate over each trial and calculate average and standard deviation
+    for trial in range(n_trials):
+        trial_test_accs = exp.batch_metric_values[ensemble_name][trial][
+            "batch_test_acc"
+        ]
+
+        # Calculate average and standard deviation for this trial
+        avg_test_acc = np.mean(trial_test_accs)
+        std_test_acc = np.std(trial_test_accs)
+
+        avg_test_accs_per_trial.append(avg_test_acc)
+        std_test_accs_per_trial.append(std_test_acc)
+
+    return avg_test_accs_per_trial, std_test_accs_per_trial
+
+
 def seed_everything(seed=1234):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
     os.environ["PYTHONHASHSEED"] = str(seed)
