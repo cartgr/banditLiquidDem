@@ -94,19 +94,6 @@ class Experiment:
         batch_idx = 0
         current_digit_group = 0
 
-        # In your Experiment.single_trial method, or wherever the data loader is used
-
-        # for batch_idx, batch_data in enumerate(self.train_data_loader):
-        #     print(f"Batch {batch_idx}: Type of batch_data is {type(batch_data)}")
-        #     print(f"Batch {batch_idx}: Length of batch_data is {len(batch_data)}")
-        #     if isinstance(batch_data, list) and len(batch_data) == 3:
-        #         images, labels, task_id = batch_data
-        #         print(f"Batch {batch_idx}: Successfully unpacked images and labels")
-        #     else:
-        #         print(f"Batch {batch_idx}: Unable to unpack images and labels")
-        #         print(f"Batch {batch_idx}: batch_data is {batch_data}")
-        #         break  # Break out of the loop for debugging purposes
-
         for images, labels in self.train_data_loader:
             batch_idx += 1
             if batch_idx in self.train_splits:

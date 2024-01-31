@@ -28,7 +28,7 @@ class DelegationMechanism:
         self.delegations.pop(v_id, None)
 
     def voter_is_active(self, v: Voter):
-        # Voter v is delegating if they are NOT making a delegation. That is, if they are not a key in the delegation dict.
+        # Voter v is active if they are NOT making a delegation. That is, if they are not a key in the delegation dict.
         return v.id not in self.delegations.keys()
 
     # def calculate_CI(self, voter):
@@ -299,6 +299,220 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
 
         if t_increment:
             self.t += t_increment
+
+
+class StudentExpertDelegationMechanism:
+    def __init__(self, batch_size, window_size=None, verbose=False):
+        # self.delegations = {}  # key: delegate_from (id), value: delegate_to (id)
+        self.t = 0
+        self.window_size = window_size
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.student_delegations = {}
+        self.expert_delegations = {}
+
+    def add_student_delegation(self, from_id, to_id):
+        """
+        Create a new delegation from one voter to another which also removes any old delegations the new delegator had.
+        Currently, do not bother considering cycles or any reason why a delegation may be impossible.
+        Args:
+            from_id (_type_): _description_
+            to_id (_type_): _description_
+        """
+        if self.verbose:
+            print(f"Making delegation from {from_id} to {to_id} at t={self.t}.")
+        self.student_delegations[from_id] = to_id
+
+    def add_expert_delegation(self, from_id, to_id):
+        """
+        Create a new delegation from one voter to another which also removes any old delegations the new delegator had.
+        Currently, do not bother considering cycles or any reason why a delegation may be impossible.
+        Args:
+            from_id (_type_): _description_
+            to_id (_type_): _description_
+        """
+        if self.verbose:
+            print(f"Making delegation from {from_id} to {to_id} at t={self.t}.")
+        self.expert_delegations[from_id] = to_id
+
+    def remove_student_delegation(self, v_id):
+        print(f"Removing delegation {v_id} made.")
+        self.student_delegations.pop(v_id, None)
+
+    def remove_expert_delegation(self, v_id):
+        print(f"Removing delegation {v_id} made.")
+        self.expert_delegations.pop(v_id, None)
+
+    def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
+        """
+        Update the delegation of each voter based on its recent performance, overall ensemble performance, and whether training or not.
+        The base DelegationMechanism class (currently) does not delegate at all. Subclasses should override this in order to provide
+        customized delegation behaviour.
+        Args:
+            ensemble_accs (list): all batch accuracies of the ensemble as a whole
+            voters (Voter): all Voters within the ensemble, they know their own accuracy history
+            train (bool): True iff in training phase
+        """
+
+        if train:
+            # print(self.delegations)
+            # First we will calculate all slopes
+            slopes = dict()
+            for voter in voters:
+                slope = accuracy_linear_regression_slope(
+                    t_now=self.t,
+                    t_before=self.t - self.window_size,
+                    voter_batch_accs=voter.batch_accuracies,
+                )
+
+                # print(f"Slope for voter {voter.id} at time {self.t}: ", slope)
+                slopes[voter.id] = slope
+                # print(self.t)
+
+            # now we need to do two things:
+            # 1. ensure all current delegations are still valid. If not, remove them
+            # 2. go through the full delegation process
+            delegators_to_pop = []
+            for (
+                delegator,
+                delegee,
+            ) in self.student_delegations.items():
+                if slopes[delegator.id] > slopes[delegee.id]:
+                    delegators_to_pop.append(delegator)
+            for delegator in delegators_to_pop:
+                self.student_delegations.pop(delegator)
+
+            for voter in voters:  # go through the full delegation process
+                possible_delegees = []
+                gaps = []
+                for other_voter in voters:
+                    # find all other voters who have a higher slope
+                    if other_voter.id != voter.id and (
+                        slopes[other_voter.id] > slopes[voter.id]
+                    ):
+                        possible_delegees.append(other_voter)
+                        gaps.append(slopes[other_voter.id] - slopes[voter.id])
+                if len(possible_delegees) > 0:
+                    # probabilistically delegate based on the gaps
+                    # larger gaps are more likely to be chosen
+                    sum_gaps = sum(gaps)
+                    probabilities = [gap / sum_gaps for gap in gaps]
+                    delegee = np.random.choice(possible_delegees, p=probabilities)
+                    self.add_student_delegation(voter, delegee)
+
+        else:
+            # no students in test phase # NOTE: the empty dict technically means everyone is a student so this isnt quite correct
+            # however it shouldnt matter since we dont use the student_delegations dict in test phase
+            self.student_delegations = {}
+
+        # We will always be updating the expert delegations
+        # we will just use the previous batch accuracy to determine the probability of delegation
+
+        previous_batch_accs = dict()
+        for voter in voters:
+            if len(voter.batch_accuracies) > 0:
+                previous_batch_accs[voter.id] = voter.batch_accuracies[-1]
+            else:
+                previous_batch_accs[voter.id] = 0
+
+        # now we need to do two things:
+        # 1. ensure all current delegations are still valid. If not, remove them
+        # 2. go through the full delegation process
+        delegators_to_pop = []
+        for (
+            delegator,
+            delegee,
+        ) in self.expert_delegations.items():
+            if previous_batch_accs[delegator.id] > previous_batch_accs[delegee.id]:
+                delegators_to_pop.append(delegator)
+        for delegator in delegators_to_pop:
+            self.expert_delegations.pop(delegator)
+
+        for voter in voters:  # go through the full delegation process
+            possible_delegees = []
+            gaps = []
+            for other_voter in voters:
+                # find all other voters who have a higher accuracy on the last batch
+                if other_voter.id != voter.id and (
+                    previous_batch_accs[other_voter.id] > previous_batch_accs[voter.id]
+                ):
+                    possible_delegees.append(other_voter)
+                    gaps.append(
+                        previous_batch_accs[other_voter.id]
+                        - previous_batch_accs[voter.id]
+                    )
+            if len(possible_delegees) > 0:
+                #convert gaps to a list of floats
+                gaps = [float(gap) for gap in gaps]
+
+                sum_gaps = sum(gaps)
+                probabilities = [gap / sum_gaps for gap in gaps]
+
+                delegee = np.random.choice(possible_delegees, p=probabilities)
+                self.add_expert_delegation(voter, delegee)
+
+        if t_increment:
+            self.t += t_increment
+
+    def count_expert_guru_weight(self, guru, delegations):
+        # count the number of voters that have delegated to this guru
+        weight = 1
+        for voter in delegations.keys():
+            if self.get_expert_guru_of_voter(voter) == guru:
+                weight += 1
+            # if delegations[voter] == guru:
+            #     weight += self.count_guru_weight(voter, delegations)
+        return weight
+
+    def get_expert_gurus(self, voters):
+        # find all voters who have not delegated to anyone
+        gurus = []
+
+        for voter in voters:
+            if voter.id not in self.expert_delegations.keys():
+                gurus.append(voter)
+        return gurus
+
+    def get_student_gurus(self, voters):
+        # find all voters who have not delegated to anyone
+        gurus = []
+        for voter in voters:
+            if voter.id not in self.student_delegations.keys():
+                gurus.append(voter)
+        return gurus
+
+    def get_gurus(self, voters, expert=False):
+        if expert:
+            return self.get_expert_gurus(voters)
+        else:
+            return self.get_student_gurus(voters)
+
+    def get_expert_guru_of_voter(self, v_id):
+        # Recursively trace through delegations until the guru of this voter is found.
+        # A voter is a guru if they do not appear as a key in self.delegations
+        if v_id not in self.expert_delegations:
+            return v_id
+        else:
+            delegatee = self.expert_delegations[v_id]
+            while delegatee in self.expert_delegations:
+                delegatee = self.expert_delegations[delegatee]
+            return delegatee
+
+    def get_expert_gurus_with_weights(self, voters):
+        # find all voters who have not delegated to anyone and how much weight they have
+
+        gurus = self.get_expert_gurus(voters)
+        guru_weights = dict()
+        for guru in gurus:
+            guru_weights[guru] = self.count_expert_guru_weight(
+                guru, self.expert_delegations
+            )
+
+        return guru_weights
+
+    def voter_is_student(self, v: Voter):
+        # Voter v is a student if they are NOT making a student delegation. That is, if they are not a key in the student_delegations dict.
+        return v.id not in self.student_delegations.keys()
 
 
 def voter_has_improved(t_now, t_then, voter_batch_accs):
