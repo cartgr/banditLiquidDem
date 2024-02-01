@@ -2,6 +2,10 @@ from matplotlib.pyplot import tick_params
 from .learning_utils import *
 import numpy as np
 from tqdm import tqdm
+import random
+import numpy as np
+import torch
+import os
 
 
 class Experiment:
@@ -89,6 +93,7 @@ class Experiment:
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
         batch_idx = 0
         current_digit_group = 0
+
         for images, labels in self.train_data_loader:
             batch_idx += 1
             if batch_idx in self.train_splits:
@@ -124,6 +129,12 @@ class Experiment:
                     trial_num=trial_num,
                     metric_name="batch_train_acc",
                 )
+
+                # if ensemble.name == "proba_slope_delegations":
+                #     print("Trial", trial_num)
+                #     print(len(train_acc_history))
+                #     print()
+
                 ensemble.update_delegations(
                     accs=train_acc_history, train=True, t_increment=1
                 )  # For ucb, if train is true dont do anything. We want to train all clfs
@@ -303,15 +314,36 @@ def calculate_avg_std_train_accs(exp, ensemble_name, n_trials):
     return avg_train_accs, std_train_accs
 
 
-def seed_everything(seed=1234):
-    import random
-    import numpy as np
-    import torch
+def calculate_avg_std_test_accs_per_trial(exp, ensemble_name, n_trials):
+    """
+    Calculate average and standard deviation of test accuracies for each trial.
 
+    :param exp: The experiment object containing batch metric values.
+    :param ensemble_name: The name of the ensemble to calculate metrics for.
+    :param n_trials: The number of trials to include in the calculation.
+    :return: A tuple of two lists - average accuracies and standard deviations for each trial.
+    """
+    avg_test_accs_per_trial = []
+    std_test_accs_per_trial = []
+
+    # Iterate over each trial and calculate average and standard deviation
+    for trial in range(n_trials):
+        trial_test_accs = exp.batch_metric_values[ensemble_name][trial][
+            "batch_test_acc"
+        ]
+
+        # Calculate average and standard deviation for this trial
+        avg_test_acc = np.mean(trial_test_accs)
+        std_test_acc = np.std(trial_test_accs)
+
+        avg_test_accs_per_trial.append(avg_test_acc)
+        std_test_accs_per_trial.append(std_test_acc)
+
+    return avg_test_accs_per_trial, std_test_accs_per_trial
+
+
+def seed_everything(seed=1234):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
-seed_everything(2)
+    os.environ["PYTHONHASHSEED"] = str(seed)

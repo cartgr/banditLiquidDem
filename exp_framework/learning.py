@@ -5,7 +5,6 @@ import torch.nn as nn
 class Net(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(Net, self).__init__()
-        # TODO: Should generalize this to work for other datasets
         self.input_dim = input_dim
         self.output_dim = output_dim
 
