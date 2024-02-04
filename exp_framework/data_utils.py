@@ -40,7 +40,8 @@ class Data:
                 return_digit_group_loaders=True,
             )
         elif data_set_name == "rotated_mnist":
-            rotated_mnsit = RotatedMNIST(n_experiences=5, seed=0)
+            # rotated_mnsit = RotatedMNIST(n_experiences=5, rotations_list=[-180, -90, 0, 90, 180])
+            rotated_mnsit = RotatedMNIST(n_experiences=5, seed=1)
             train_stream = rotated_mnsit.train_stream
             test_stream = rotated_mnsit.test_stream
             (
