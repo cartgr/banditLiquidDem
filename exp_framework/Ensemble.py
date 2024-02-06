@@ -29,7 +29,10 @@ class Ensemble:
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # device = "mps" if torch.backends.mps.is_available() else "cpu"
+        device = "cpu"
+        self.device = torch.device(device)
         self.voters = []
 
     def __str__(self) -> str:
@@ -503,7 +506,9 @@ class StudentExpertEnsemble:
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # device = "mps" if torch.backends.mps.is_available() else "cpu"
+        device = "cpu"
+        self.device = torch.device(device)
         self.voters = []
 
     def __str__(self) -> str:

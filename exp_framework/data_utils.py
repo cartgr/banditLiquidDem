@@ -12,6 +12,7 @@ class Data:
         train_digit_groups: list = None,
         test_digit_groups: list = None,
         batch_size: int = 128,
+        seed=0,
     ):
         self.data_set_name = data_set_name
         self.train_digit_groups = train_digit_groups
@@ -41,7 +42,7 @@ class Data:
             )
         elif data_set_name == "rotated_mnist":
             # rotated_mnsit = RotatedMNIST(n_experiences=5, rotations_list=[-180, -90, 0, 90, 180])
-            rotated_mnsit = RotatedMNIST(n_experiences=5, seed=1)
+            rotated_mnsit = RotatedMNIST(n_experiences=5, seed=seed)
             train_stream = rotated_mnsit.train_stream
             test_stream = rotated_mnsit.test_stream
             (

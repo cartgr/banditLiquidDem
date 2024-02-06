@@ -6,6 +6,7 @@ import random
 import numpy as np
 import torch
 import os
+from .data_utils import Data
 
 
 class Experiment:
@@ -53,6 +54,8 @@ class Experiment:
         self.seed = seed
         self.verbose = verbose
 
+        self.data_set_name = data.data_set_name
+
     def run(self):
         """
         Run all trials within this Experiment. During each trial: Generate new ensembles, train them, and save measurements about their
@@ -75,6 +78,15 @@ class Experiment:
         # for ensemble in self.ensembles:
         #     print("Delegations for ensemble", ensemble.name, "before trial", trial_num)
         #     print(ensemble.delegation_mechanism.delegations)
+
+        if self.data_set_name == "rotated_mnist":
+            data = Data(data_set_name=self.data_set_name, seed=self.seed + trial_num)
+            self.train_digit_groups = data.train_digit_groups
+            self.test_digit_groups = data.test_digit_groups
+            self.train_data_loader = data.train_data_loader
+            self.train_splits = data.train_splits
+            self.test_data_loader = data.test_data_loader
+            self.test_splits = data.test_splits
 
         for ensemble in self.ensembles:
             ensemble.initialize_voters()
