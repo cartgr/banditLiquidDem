@@ -1,6 +1,6 @@
 from sklearn import experimental
-from exp_framework.Ensemble import Ensemble
-from exp_framework.delegation import DelegationMechanism, RestrictedMaxGurusUCBDelegationMechanism
+from exp_framework.Ensemble import Ensemble, PretrainedEnsemble, StudentExpertEnsemble
+from exp_framework.delegation import DelegationMechanism, RestrictedMaxGurusDelegationMechanism, ProbaSlopeDelegationMechanism, UCBDelegationMechanism, StudentExpertDelegationMechanism
 from exp_framework.experiment import Experiment
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,40 +11,130 @@ print("Starting!")
 batch_size = 128
 window_size = 10
 n_voters = 10
+num_trials = 5
 
+
+# Set up data for class incremental framework
 
 data = Data(
     data_set_name="mnist",
+    # train_digit_groups=[range(5), range(5, 10)],
+    # train_digit_groups=[[0, 1, 2], [3, 4, 5,], [6, 7, 8, 9]],
     train_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
-    test_digit_groups=[[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]],
+    # test_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
+    # test_digit_groups=[range(5), range(5, 10)],
+    test_digit_groups=[range(10)],
     batch_size=batch_size,
 )
 
-# del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
-del_mech = RestrictedMaxGurusUCBDelegationMechanism(
+NOOP_del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
+
+max_active_gurus = 1
+# create several mechanisms with a single active voter
+random_better = ProbaSlopeDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size,
+    max_active=max_active_gurus,
+    probability_function="random_better"
+)
+probabilistic_better = ProbaSlopeDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size,
+    max_active=max_active_gurus,
+    probability_function="probabilistic_better"
+)
+probabilistic_weighted = ProbaSlopeDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size,
+    max_active=max_active_gurus,
+    probability_function="probabilistic_weighted"
+)
+student_expert_del_mech = StudentExpertDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size
+)
+restricted_max_gurus_mech = RestrictedMaxGurusDelegationMechanism(
     batch_size=batch_size,
     num_voters=n_voters,
-    max_active_voters=2,
+    max_active_voters=max_active_gurus,
     window_size=window_size,
     t_between_delegation=3,
 )
+UCB_del_mech = UCBDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size,
+    ucb_window_size=None
+)
 
-print("Creating Experiment")
 
+pretrained_ensemble = PretrainedEnsemble(
+    n_voters=n_voters,
+    delegation_mechanism=UCB_del_mech,
+    name="UCB_delegation_ensemble"
+    )
+pretrained_ensemble.do_pretaining(data)
 
-ensembles = [
+ensembles_dict = {
+    "full_ensemble":
     Ensemble(
         training_epochs=1,
         n_voters=n_voters,
-        delegation_mechanism=del_mech,
-        name="simple_delegating_ensemble",
+        delegation_mechanism=NOOP_del_mech,
+        name="full_ensemble",
         input_dim=28 * 28,
         output_dim=10,
-    )
-]
+    ),
+    "random_better_delegations":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=random_better,
+        name="random_better_delegations",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    "probabilistic_better_delegations":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=probabilistic_better,
+        name="probabilistic_better_delegations",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    "probabilistic_weighted_delegations":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=probabilistic_weighted,
+        name="probabilistic_weighted_delegations",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    # "student_expert_delegations":
+    # StudentExpertEnsemble(
+    #     training_epochs=1,
+    #     n_voters=n_voters,
+    #     delegation_mechanism=student_expert_del_mech,
+    #     name="student_expert_ensemble",
+    #     input_dim=28 * 28,
+    #     output_dim=10,
+    # ),
+    "restricted_max_gurus":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=restricted_max_gurus_mech,
+        name="student_expert_ensemble",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    "UCB_delegations": pretrained_ensemble
+}
 
-exp = Experiment(n_trials=1, ensembles=ensembles, data=data)
-batch_metric_values = exp.run()
+one_active_exp = Experiment(n_trials=num_trials, ensembles=list(ensembles_dict.values()), data=data, seed=4090)
+batch_metric_values = one_active_exp.run()
+exit()
 
 ####
 # Temporary plotting garbage code, may want to generalize a bit and turn into reusable code
@@ -52,6 +142,8 @@ batch_metric_values = exp.run()
 
 print("\n\n----------------------\n\n")
 print(batch_metric_values)
+
+exp = None
 
 
 def plot_accuracy_and_active_voters(batch_accuracies, active_voter_tuples, title=None):

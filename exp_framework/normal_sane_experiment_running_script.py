@@ -1,42 +1,118 @@
 from sklearn import experimental
-from Ensemble import Ensemble
-from delegation import DelegationMechanism, RestrictedMaxGurusUCBDelegationMechanism
-from experiment import Experiment
-import matplotlib.pyplot as plt
+from exp_framework.Ensemble import Ensemble
+from exp_framework.experiment import Experiment
+from exp_framework.Ensemble import Ensemble, PretrainedEnsemble
+from exp_framework.delegation import (
+    DelegationMechanism,
+    UCBDelegationMechanism,
+    ProbaSlopeDelegationMechanism,
+    RestrictedMaxGurusDelegationMechanism,
+)
+from exp_framework.experiment import (
+    Experiment,
+    calculate_avg_std_test_accs,
+    calculate_avg_std_train_accs,
+)
+from matplotlib import pyplot as plt
+from exp_framework.data_utils import Data
 import numpy as np
-from data_utils import Data
+import matplotlib as mpl
+import seaborn as sns
 
 print("Starting!")
 
 batch_size = 128
-window_size = 10
+window_size = 50
+num_trials = 10
 n_voters = 10
 
 
 data = Data(
     data_set_name="mnist",
+    # train_digit_groups=[range(5), range(5, 10)],
+    # train_digit_groups=[[0, 1, 2], [3, 4, 5,], [6, 7, 8, 9]],
     train_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
-    test_digit_groups=[[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]],
+    # test_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
+    # test_digit_groups=[range(5), range(5, 10)],
+    test_digit_groups=[range(10)],
     batch_size=batch_size,
 )
 
-# del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
-del_mech = RestrictedMaxGurusUCBDelegationMechanism(
+NOOP_del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
+
+# create several mechanisms with a single active voter
+random_better = ProbaSlopeDelegationMechanism(
     batch_size=batch_size,
-    num_voters=n_voters,
-    max_active_voters=2,
     window_size=window_size,
-    t_between_delegation=3,
+    max_active=1,
+    probability_function="random_better"
 )
+probabilistic_better = ProbaSlopeDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size,
+    max_active=1,
+    probability_function="probabilistic_better"
+)
+probabilistic_weighted = ProbaSlopeDelegationMechanism(
+    batch_size=batch_size,
+    window_size=window_size,
+    max_active=1,
+    probability_function="probabilistic_weighted"
+)
+
+ensembles_dict = {
+    "full_ensemble":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=NOOP_del_mech,
+        name="full_ensemble",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    "random_better_delegations":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=random_better,
+        name="random_better_delegations",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    "probabilistic_better_delegations":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=probabilistic_better,
+        name="probabilistic_better_delegations",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+    "probabilistic_weighted_delegations":
+    Ensemble(
+        training_epochs=1,
+        n_voters=n_voters,
+        delegation_mechanism=probabilistic_weighted,
+        name="probabilistic_weighted_delegations",
+        input_dim=28 * 28,
+        output_dim=10,
+    ),
+}
+
 
 print("Creating Experiment")
+exp = Experiment(n_trials=num_trials, ensembles=list(ensembles_dict.values()), data=data, seed=4090)
 
+print("Running Experiment")
+_ = exp.run()
+
+exit()
 
 ensembles = [
     Ensemble(
         training_epochs=1,
         n_voters=n_voters,
-        delegation_mechanism=del_mech,
+        delegation_mechanism="del_mech",
         name="simple_delegating_ensemble",
         input_dim=28 * 28,
         output_dim=10,
