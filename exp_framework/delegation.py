@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import stats
+from sklearn.preprocessing import maxabs_scale
 from .Voter import *
 
 
@@ -66,14 +67,14 @@ class DelegationMechanism:
         gurus = self.get_gurus(voters)
         guru_weights = dict()
         for guru in gurus:
-            guru_weights[guru] = self.count_guru_weight(guru, self.delegations)
+            guru_weights[guru] = self.count_guru_weight(guru)
 
         return guru_weights
 
-    def count_guru_weight(self, guru, delegations):
+    def count_guru_weight(self, guru):
         # count the number of voters that have delegated to this guru
         weight = 1
-        for voter in delegations.keys():
+        for voter in self.delegations.keys():
             if self.get_guru_of_voter(voter) == guru:
                 weight += 1
             # if delegations[voter] == guru:
@@ -118,7 +119,7 @@ class UCBDelegationMechanism(DelegationMechanism):
                     self.batch_size,
                 )
 
-            print("Delegations: ", self.delegations)
+            # print("Delegations: ", self.delegations)
 
             # now we need to do two things:
             # 1. ensure all current delegations are still valid. If not, remove them
@@ -152,7 +153,7 @@ class UCBDelegationMechanism(DelegationMechanism):
                     self.add_delegation(voter, delegee)
 
 
-class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
+class RestrictedMaxGurusDelegationMechanism(DelegationMechanism):
     def __init__(
         self,
         batch_size,
@@ -202,9 +203,9 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
                     # voter should remain active if they are continuing to learn
                     pass
                 else:
-                    print(
-                        f"Linear regression slope is: {slope} at time {self.t} so {v} is delegating."
-                    )
+                    # print(
+                    #     f"Linear regression slope is: {slope} at time {self.t} so {v} is delegating."
+                    # )
                     should_delegate.append(v)
             else:  # v is inactive, we rely on all voters always tracking their score
                 """
@@ -241,10 +242,16 @@ class RestrictedMaxGurusUCBDelegationMechanism(DelegationMechanism):
 
 class ProbaSlopeDelegationMechanism(DelegationMechanism):
     """
-    On each batch, we check the slope
+    On each batch, we check the slope of recent voter accuracy
     Voters can only delegate to other voters who have a higher slope
     Delegation is probabilistic based on the difference in slope
     """
+
+
+    def __init__(self, batch_size, window_size=None, verbose=False, max_active=1, probability_function="probabilistic_better"):
+        super().__init__(batch_size, window_size)
+        self.max_active = max_active
+        self.probability_function = probability_function
 
     def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
         if train:
@@ -261,11 +268,16 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
                 # print(f"Slope for voter {voter.id} at time {self.t}: ", slope)
                 slopes[voter.id] = slope
                 # print(self.t)
+            
+            # get the k highest slopes so we can make sure they are not delegating
+            slopes = dict(sorted(slopes.items(), key=lambda item: item[1], reverse=True))
+            best_k_ids = list(slopes.keys())[:self.max_active]
+            delegators_to_pop = best_k_ids
 
             # now we need to do two things:
             # 1. ensure all current delegations are still valid. If not, remove them
             # 2. go through the full delegation process
-            delegators_to_pop = []
+            # delegators_to_pop = []
             for (
                 delegator,
                 delegee,
@@ -273,9 +285,13 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
                 if slopes[delegator.id] > slopes[delegee.id]:
                     delegators_to_pop.append(delegator)
             for delegator in delegators_to_pop:
-                self.delegations.pop(delegator)
+                if delegator in self.delegations:
+                    self.delegations.pop(delegator)
 
             for voter in voters:  # go through the full delegation process
+                if voter.id in best_k_ids:
+                    # make sure that the best max_active voters do not delegate
+                    continue
                 possible_delegees = []
                 gaps = []
                 for other_voter in voters:
@@ -285,11 +301,27 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
                     ):
                         possible_delegees.append(other_voter)
                         gaps.append(slopes[other_voter.id] - slopes[voter.id])
+
+                # delegate probabilistically based on the gaps. Larger gaps are more likely to be chosen
+                # Can explore a variety of delegation functions
                 if len(possible_delegees) > 0:
-                    # probabilistically delegate based on the gaps
-                    # larger gaps are more likely to be chosen
-                    sum_gaps = sum(gaps)
-                    probabilities = [gap / sum_gaps for gap in gaps]
+                    
+                    if self.probability_function == "random_better":
+                        # delegate to a higher-slope voter uniformly at random
+                        probabilities = [1 for _ in gaps]
+                    elif self.probability_function == "probabilistic_better":
+                        # delegate to higher-slope voters proportionally to their difference in slope
+                        sum_gaps = sum(gaps)
+                        probabilities = [gap / sum_gaps for gap in gaps]
+                    elif self.probability_function == "probabilistic_weighted":
+                        # get weight of each voters guru, use it to scale delegation probabilities
+                        weights = [self.count_guru_weight(self.get_guru_of_voter(g)) for g in possible_delegees]
+                        sum_gaps = sum(gaps)
+                        probabilities = [(1/weights[idx]) * (gaps[idx]/sum_gaps) for idx in range(len(gaps))]
+                    # normalize probabilities before selecting delegee
+                    raw_sum = sum(probabilities)
+                    probabilities = [p/raw_sum for p in probabilities]
+
                     delegee = np.random.choice(possible_delegees, p=probabilities)
                     self.add_delegation(voter, delegee)
 
@@ -336,11 +368,11 @@ class StudentExpertDelegationMechanism:
         self.expert_delegations[from_id] = to_id
 
     def remove_student_delegation(self, v_id):
-        print(f"Removing delegation {v_id} made.")
+        print(f"Removing student delegation {v_id} made.")
         self.student_delegations.pop(v_id, None)
 
     def remove_expert_delegation(self, v_id):
-        print(f"Removing delegation {v_id} made.")
+        print(f"Removing expert delegation {v_id} made.")
         self.expert_delegations.pop(v_id, None)
 
     def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
@@ -513,6 +545,10 @@ class StudentExpertDelegationMechanism:
     def voter_is_student(self, v: Voter):
         # Voter v is a student if they are NOT making a student delegation. That is, if they are not a key in the student_delegations dict.
         return v.id not in self.student_delegations.keys()
+    
+    def voter_is_active(self, v: Voter):
+        # Voter v is active if they are NOT making a delegation. That is, if they are not a key in the delegation dict.
+        return self.voter_is_student(v)
 
 
 def voter_has_improved(t_now, t_then, voter_batch_accs):
