@@ -474,7 +474,7 @@ class StudentExpertDelegationMechanism:
                         - previous_batch_accs[voter.id]
                     )
             if len(possible_delegees) > 0:
-                #convert gaps to a list of floats
+                # convert gaps to a list of floats
                 gaps = [float(gap) for gap in gaps]
 
                 sum_gaps = sum(gaps)
@@ -549,6 +549,150 @@ class StudentExpertDelegationMechanism:
     def voter_is_active(self, v: Voter):
         # Voter v is active if they are NOT making a delegation. That is, if they are not a key in the delegation dict.
         return self.voter_is_student(v)
+
+
+class StudentExpertDelegationMechanismExperimental(StudentExpertDelegationMechanism):
+    def update_delegations(self, ensemble_accs, voters, train, t_increment=None):
+        """
+        Update the delegation of each voter based on its recent performance, overall ensemble performance, and whether training or not.
+        The base DelegationMechanism class (currently) does not delegate at all. Subclasses should override this in order to provide
+        customized delegation behaviour.
+        Args:
+            ensemble_accs (list): all batch accuracies of the ensemble as a whole
+            voters (Voter): all Voters within the ensemble, they know their own accuracy history
+            train (bool): True iff in training phase
+        """
+
+        if train:
+            # print(self.delegations)
+            # First we will calculate all slopes
+            metric = dict()
+            slopes = dict()
+            avg_accs = dict()
+            for voter in voters:
+                slope = accuracy_linear_regression_slope(
+                    t_now=self.t,
+                    t_before=self.t - self.window_size,
+                    voter_batch_accs=voter.batch_accuracies,
+                )
+                slopes[voter.id] = slope
+
+                # if len(voter.batch_accuracies) > self.window_size:
+                #     avg_acc = np.mean(voter.batch_accuracies[-self.window_size :])
+                # else:
+                #     avg_acc = np.mean(voter.batch_accuracies)
+                avg_acc = voter.batch_accuracies[-1]
+
+                avg_accs[voter.id] = avg_acc
+
+                # metric[voter.id] = slope * avg_acc
+                # metric[voter.id] = slope + avg_acc
+                # metric[voter.id] = avg_acc
+                metric[voter.id] = slope
+                # metric[voter.id] = avg_acc / (slope + 1e-8)
+
+            # now we need to do two things:
+            # 1. ensure all current delegations are still valid. If not, remove them
+            # 2. go through the full delegation process
+            delegators_to_pop = []
+            for (
+                delegator,
+                delegee,
+            ) in self.student_delegations.items():
+                if metric[delegator.id] > metric[delegee.id]:
+                    delegators_to_pop.append(delegator)
+            for delegator in delegators_to_pop:
+                self.student_delegations.pop(delegator)
+
+            for voter in voters:  # go through the full delegation process
+                possible_delegees = []
+                gaps = dict()
+                for other_voter in voters:
+                    # find all other voters who have a higher slope
+                    if other_voter.id != voter.id and (
+                        metric[other_voter.id] > metric[voter.id]
+                    ):
+                        possible_delegees.append(other_voter)
+                        gaps[other_voter.id] = metric[other_voter.id] - metric[voter.id]
+                if len(possible_delegees) > 0:
+                    # turn gaps into a list of probabilities (normalize)
+                    gaps = [float(gap) for gap in gaps.values()]
+                    sum_gaps = sum(gaps)
+                    probas = [gap / sum_gaps for gap in gaps]
+
+                    # scale probas by constant 0 < c < 1
+                    c = 0.5
+                    # for k, v in probas.items():
+                    #     probas[k] = c * v
+
+                    # probabilistically delegate based on the gaps
+                    # shuffle the order of the possible delegees to avoide favouring earlier voters
+                    # np.random.shuffle(possible_delegees)
+                    # for possible_delegee in possible_delegees:
+                    #     proba = probas[possible_delegee.id]
+                    #     if np.random.rand() < proba:
+                    #         self.add_student_delegation(voter, possible_delegee)
+                    #         break
+
+                    # sample a random rng value
+                    if np.random.rand() < c:
+                        # sample a random voter
+                        delegee = np.random.choice(possible_delegees, p=probas)
+                        self.add_student_delegation(voter, delegee)
+
+        else:
+            # no students in test phase # NOTE: the empty dict technically means everyone is a student so this isnt quite correct
+            # however it shouldnt matter since we dont use the student_delegations dict in test phase
+            self.student_delegations = {}
+
+        # We will always be updating the expert delegations
+        # we will just use the previous batch accuracy to determine the probability of delegation
+
+        previous_batch_accs = dict()
+        for voter in voters:
+            if len(voter.batch_accuracies) > 0:
+                previous_batch_accs[voter.id] = voter.batch_accuracies[-1]
+            else:
+                previous_batch_accs[voter.id] = 0
+
+        # now we need to do two things:
+        # 1. ensure all current delegations are still valid. If not, remove them
+        # 2. go through the full delegation process
+        delegators_to_pop = []
+        for (
+            delegator,
+            delegee,
+        ) in self.expert_delegations.items():
+            if previous_batch_accs[delegator.id] > previous_batch_accs[delegee.id]:
+                delegators_to_pop.append(delegator)
+        for delegator in delegators_to_pop:
+            self.expert_delegations.pop(delegator)
+
+        for voter in voters:  # go through the full delegation process
+            possible_delegees = []
+            gaps = []
+            for other_voter in voters:
+                # find all other voters who have a higher accuracy on the last batch
+                if other_voter.id != voter.id and (
+                    previous_batch_accs[other_voter.id] > previous_batch_accs[voter.id]
+                ):
+                    possible_delegees.append(other_voter)
+                    gaps.append(
+                        previous_batch_accs[other_voter.id]
+                        - previous_batch_accs[voter.id]
+                    )
+            if len(possible_delegees) > 0:
+                # convert gaps to a list of floats
+                gaps = [float(gap) for gap in gaps]
+
+                sum_gaps = sum(gaps)
+                probabilities = [gap / sum_gaps for gap in gaps]
+
+                delegee = np.random.choice(possible_delegees, p=probabilities)
+                self.add_expert_delegation(voter, delegee)
+
+        if t_increment:
+            self.t += t_increment
 
 
 def voter_has_improved(t_now, t_then, voter_batch_accs):
