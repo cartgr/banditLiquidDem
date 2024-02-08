@@ -5,12 +5,16 @@ from .Voter import *
 
 
 class DelegationMechanism:
-    def __init__(self, batch_size, window_size=None, verbose=False):
+    def __init__(self, batch_size, window_size=None, verbose=False, score_method="accuracy_score"):
         self.delegations = {}  # key: delegate_from (id), value: delegate_to (id)
         self.t = 0
         self.window_size = window_size
         self.batch_size = batch_size
         self.verbose = verbose
+
+        # TODO: Currently this is only used by ProbaSlopeDelegationMechanism
+        # I just wanted it to be accessible more broadly so Voters can see which score they should compute
+        self.score_method = score_method
 
     def add_delegation(self, from_id, to_id):
         """
@@ -193,10 +197,10 @@ class RestrictedMaxGurusDelegationMechanism(DelegationMechanism):
                     v should delegate
                 """
                 # if voter_has_improved_linreg(t_now=self.t, t_then=self.t - self.window_size, voter_batch_accs=v.batch_accuracies):
-                slope = accuracy_linear_regression_slope(
+                slope = linear_regression_slope(
                     t_now=self.t,
                     t_before=self.t - self.window_size,
-                    voter_batch_accs=v.batch_accuracies,
+                    score_values=v.batch_accuracies,
                 )
                 # print(f"Linear regression slope is: {slope} at time {self.t}")
                 if slope > -0.1:
@@ -248,8 +252,8 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
     """
 
 
-    def __init__(self, batch_size, window_size=None, verbose=False, max_active=1, probability_function="probabilistic_better"):
-        super().__init__(batch_size, window_size)
+    def __init__(self, batch_size, window_size=None, verbose=False, max_active=1, probability_function="probabilistic_better", score_method="accuracy_score"):
+        super().__init__(batch_size, window_size, verbose=verbose, score_method=score_method)
         self.max_active = max_active
         self.probability_function = probability_function
 
@@ -259,10 +263,15 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
             # First we will calculate all slopes
             slopes = dict()
             for voter in voters:
-                slope = accuracy_linear_regression_slope(
+                # slope = linear_regression_slope(
+                #     t_now=self.t,
+                #     t_before=self.t - self.window_size,
+                #     score_values=voter.batch_accuracies,
+                # )
+                slope = linear_regression_slope(
                     t_now=self.t,
                     t_before=self.t - self.window_size,
-                    voter_batch_accs=voter.batch_accuracies,
+                    score_values=voter.metric_scores[self.score_method],
                 )
 
                 # print(f"Slope for voter {voter.id} at time {self.t}: ", slope)
@@ -318,6 +327,13 @@ class ProbaSlopeDelegationMechanism(DelegationMechanism):
                         weights = [self.count_guru_weight(self.get_guru_of_voter(g)) for g in possible_delegees]
                         sum_gaps = sum(gaps)
                         probabilities = [(1/weights[idx]) * (gaps[idx]/sum_gaps) for idx in range(len(gaps))]
+                    elif self.probability_function == "max_diversity":
+                        # Each voter should delegate to the more accurate voter who is closest to themselves
+                        recent_probas = voter.batch_probas[-1]
+                        dists = [np.linalg.norm(g.batch_probas[-1]-recent_probas) for g in possible_delegees]
+                        closest = np.argmin(dists)
+                        probabilities = [0 for _ in range(len(possible_delegees))]
+                        probabilities[closest] = 1
                     # normalize probabilities before selecting delegee
                     raw_sum = sum(probabilities)
                     probabilities = [p/raw_sum for p in probabilities]
@@ -391,10 +407,10 @@ class StudentExpertDelegationMechanism:
             # First we will calculate all slopes
             slopes = dict()
             for voter in voters:
-                slope = accuracy_linear_regression_slope(
+                slope = linear_regression_slope(
                     t_now=self.t,
                     t_before=self.t - self.window_size,
-                    voter_batch_accs=voter.batch_accuracies,
+                    score_values=voter.batch_accuracies,
                 )
 
                 # print(f"Slope for voter {voter.id} at time {self.t}: ", slope)
@@ -570,10 +586,10 @@ class StudentExpertDelegationMechanismExperimental(StudentExpertDelegationMechan
             slopes = dict()
             avg_accs = dict()
             for voter in voters:
-                slope = accuracy_linear_regression_slope(
+                slope = linear_regression_slope(
                     t_now=self.t,
                     t_before=self.t - self.window_size,
-                    voter_batch_accs=voter.batch_accuracies,
+                    score_values=voter.batch_accuracies,
                 )
                 slopes[voter.id] = slope
 
@@ -727,7 +743,7 @@ def voter_has_improved_linreg(t_now, t_then, voter_batch_accs):
     return lr.slope >= 0
 
 
-def accuracy_linear_regression_slope(t_now, t_before, voter_batch_accs):
+def linear_regression_slope(t_now, t_before, score_values):
     """
     Return the slope of linear regression done over the given window on the given accuracies.
 
@@ -736,9 +752,9 @@ def accuracy_linear_regression_slope(t_now, t_before, voter_batch_accs):
         t_then (_type_): _description_
         voter_batch_accs (_type_): _description_
     """
-    if t_before < 0 or t_now >= len(voter_batch_accs) or t_before >= t_now:
+    if t_before < 0 or t_now >= len(score_values) or t_before >= t_now:
         return 0
-    recent_accs = voter_batch_accs[t_before : t_now + 1]
+    recent_accs = score_values[t_before : t_now + 1]
     lr = stats.linregress(range(len(recent_accs)), recent_accs)
     # print(f"Lin Regression result is {lr}")
     return lr.slope

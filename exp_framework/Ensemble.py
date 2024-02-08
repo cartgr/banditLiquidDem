@@ -54,6 +54,7 @@ class Ensemble:
                     # train_loader,
                     self.training_epochs,
                     id,
+                    score_method=self.delegation_mechanism.score_method
                 )
             )
         self.voters = voters
@@ -374,6 +375,7 @@ class PretrainedEnsemble(Ensemble):
                     # train_loader,
                     self.training_epochs,
                     id,
+                    score_method=self.delegation_mechanism.score_method
                 )
             )
 
@@ -530,6 +532,7 @@ class StudentExpertEnsemble:
                     # train_loader,
                     self.training_epochs,
                     id,
+                    score_method=self.delegation_mechanism.score_method
                 )
             )
         self.voters = voters

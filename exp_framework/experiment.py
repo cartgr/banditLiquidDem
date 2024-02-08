@@ -255,6 +255,32 @@ class Experiment:
             self.batch_metric_values[metric_name] = []
         self.batch_metric_values[metric_name].append(metric_value)
 
+    def get_aggregate_batch_metrics(self):
+        """
+        Return batch metric values averaged over all trials
+        """
+
+        aggregate_results = dict()
+        for ens_name in self.batch_metric_values:
+            aggregate_results[ens_name] = dict()
+            batch_metrics = set(self.batch_metric_values[ens_name][0].keys())
+            batch_metrics = sorted(list(batch_metrics))
+
+            # collect all trials of batch metric
+            for bm in batch_metrics:
+                if (bm == "active_voters-train") or (bm == "active_voters-test"):
+                    continue
+                bm_values = []
+                for t in range(self.n_trials):
+                    val = self.batch_metric_values[ens_name][t][bm]
+                    bm_values.append(val)
+                bm_values = np.asarray(bm_values)
+                bm_means = np.mean(bm_values, axis=0)
+                bm_stds = np.std(bm_values, axis=0)
+                aggregate_results[ens_name][f"{bm}-mean"] = bm_means
+                aggregate_results[ens_name][f"{bm}-std"] = bm_stds
+        
+        return aggregate_results
 
 def calculate_avg_std_test_accs(exp, ensemble_name, n_trials):
     """
