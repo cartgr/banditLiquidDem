@@ -122,6 +122,11 @@ def create_mnist_loaders(
     return whole_loader, split_indices
     # return loaders, split_indices
 
+def shuffle_dataset(dataset):
+    indices = list(range(len(dataset)))
+    random.shuffle(indices)
+    return Subset(dataset, indices)
+
 
 def create_rotated_mnist_loaders(
     train_stream,
@@ -134,11 +139,6 @@ def create_rotated_mnist_loaders(
     test_datasets = []
     train_splits = []
     test_splits = []
-
-    def shuffle_dataset(dataset):
-        indices = list(range(len(dataset)))
-        random.shuffle(indices)
-        return Subset(dataset, indices)
 
     # Process the training stream
     for experience in train_stream:

@@ -1,16 +1,21 @@
 from exp_framework.learning import Net
+
 from torch.optim import SGD, Adam
 from torch.nn import CrossEntropyLoss
 from avalanche.models import SimpleMLP
 from avalanche.training.supervised import Naive, CWRStar, Replay, GDumb, Cumulative, LwF, GEM, AGEM, EWC  # and many more!
 from avalanche.benchmarks.classic import RotatedMNIST, SplitMNIST
+from avalanche.training.plugins import ReplayPlugin
 import pprint
 
 model = Net(input_dim=28 * 28, output_dim=10)
 optimize = Adam(model.parameters(), lr=0.001)
+replay = ReplayPlugin(mem_size=100)
+
 cl_strategy = Naive(
     model, optimizer=optimize, criterion=CrossEntropyLoss(),
-    train_mb_size=128, train_epochs=1, eval_mb_size=128
+    train_mb_size=128, train_epochs=1, eval_mb_size=128,
+    # plugins=[replay]
 )
 # optimizer = SGD(model.parameters(), lr=0.001, momentum=0.9)
 # model = SimpleMLP(num_classes=10)
@@ -29,6 +34,10 @@ benchmark = SplitMNIST(n_experiences=5, fixed_class_order=list(range(10)), seed=
 print('Starting experiment...')
 results = []
 for experience in benchmark.train_stream:
+
+    data_size = len(experience.dataset)
+    x = experience.dataset
+    first_data = x[0]
     print("Start of experience: ", experience.current_experience)
     print("Current Classes: ", experience.classes_in_this_experience)
 

@@ -5,8 +5,10 @@ from tqdm import tqdm
 import random
 import numpy as np
 import torch
+from torch.utils.data.dataloader import DataLoader
 import os
 from .data_utils import Data
+from .data_utils import shuffle_dataset
 
 
 class Experiment:
@@ -14,16 +16,16 @@ class Experiment:
     A single Experiment class creates, trains, and compares several types of ensemble over multiple trials.
     """
 
-    def __init__(self, n_trials, ensembles, data, seed=42, verbose=False):
+    def __init__(self, n_trials, ensembles, benchmark, seed=None, verbose=False, ):
         self.window_size = 10
         self.batch_size = 128
         # self.train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-        self.train_digit_groups = data.train_digit_groups
+        # self.train_digit_groups = data.train_digit_groups
         # self.train_digit_groups = [
         #     [0, 1, 2, 3, 4, 5, 6, 7, 8],
         #     [1, 2, 3, 4, 5, 6, 7, 8, 9]
         # ]
-        self.test_digit_groups = data.test_digit_groups
+        # self.test_digit_groups = data.test_digit_groups
         # self.test_digit_groups = [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
         # self.test_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
         # self.test_digit_groups = [[2, 3], [0, 1], [8, 9], [4, 5], [6, 7]]
@@ -36,10 +38,12 @@ class Experiment:
         #     digit_groups=self.test_digit_groups, batch_size=self.batch_size, train=False
         # )
 
-        self.train_data_loader = data.train_data_loader
-        self.train_splits = data.train_splits
-        self.test_data_loader = data.test_data_loader
-        self.test_splits = data.test_splits
+        # self.train_data_loader = data.train_data_loader
+        # self.train_splits = data.train_splits
+        # self.test_data_loader = data.test_data_loader
+        # self.test_splits = data.test_splits
+
+        self.benchmark = benchmark
 
         self.ensembles = ensembles
         self.n_trials = n_trials
@@ -51,10 +55,11 @@ class Experiment:
         self.batch_metric_values = dict()
         self.experiment_metric_values = dict()
 
-        self.seed = seed
+        if seed is None:
+            self.seed = random.randint(0, 1000000)
         self.verbose = verbose
 
-        self.data_set_name = data.data_set_name
+        # self.data_set_name = data.data_set_name
 
     def run(self):
         """
@@ -79,14 +84,14 @@ class Experiment:
         #     print("Delegations for ensemble", ensemble.name, "before trial", trial_num)
         #     print(ensemble.delegation_mechanism.delegations)
 
-        if self.data_set_name == "rotated_mnist":
-            data = Data(data_set_name=self.data_set_name, seed=self.seed + trial_num)
-            self.train_digit_groups = data.train_digit_groups
-            self.test_digit_groups = data.test_digit_groups
-            self.train_data_loader = data.train_data_loader
-            self.train_splits = data.train_splits
-            self.test_data_loader = data.test_data_loader
-            self.test_splits = data.test_splits
+        # if self.data_set_name == "rotated_mnist":
+        #     data = Data(data_set_name=self.data_set_name, seed=self.seed + trial_num)
+        #     self.train_digit_groups = data.train_digit_groups
+        #     self.test_digit_groups = data.test_digit_groups
+        #     self.train_data_loader = data.train_data_loader
+        #     self.train_splits = data.train_splits
+        #     self.test_data_loader = data.test_data_loader
+        #     self.test_splits = data.test_splits
 
         for ensemble in self.ensembles:
             ensemble.initialize_voters()
@@ -106,91 +111,108 @@ class Experiment:
         batch_idx = 0
         current_digit_group = 0
 
-        for images, labels in self.train_data_loader:
-            batch_idx += 1
-            if batch_idx in self.train_splits:
-                if self.verbose:
-                    print(
-                        f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}"
+        for experience in self.benchmark.train_stream:
+        # for images, labels in self.train_data_loader:
+            ds = shuffle_dataset(experience.dataset)
+
+            my_dataloader = DataLoader(ds, batch_size=self.batch_size, shuffle=True)
+            # Run one epoch
+            for images, labels, task in my_dataloader:
+                # print("images", images)
+                # print("labels", labels)
+                # print("task", task)
+                batch_idx += 1
+                # if batch_idx in self.train_splits:
+                #     if self.verbose:
+                #         print(
+                #             f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}"
+                #         )
+                #     current_digit_group += 1
+                for ensemble in self.ensembles:  # TODO: use train_models from ensemble.py?
+                    # Train on a batch of data
+                    ensemble.learn_batch(images, labels)
+
+                    # Record performance - do this before any delegation so there's at least some data
+                    train_acc = ensemble.score(images, labels, record_pointwise_accs=False)
+                    self.add_batch_metric_value(
+                        ensemble, trial_num, "batch_train_acc", train_acc
                     )
-                current_digit_group += 1
-            for ensemble in self.ensembles:  # TODO: use train_models from ensemble.py?
-                # Train on a batch of data
-                ensemble.learn_batch(images, labels)
+                    self.add_batch_metric_value(
+                        ensemble,
+                        trial_num,
+                        "active_voters-train",
+                        [
+                            g.id
+                            for g in ensemble.delegation_mechanism.get_gurus(
+                                ensemble.voters
+                            )
+                        ],
+                    )
 
-                # Record performance - do this before any delegation so there's at least some data
-                train_acc = ensemble.score(images, labels, record_pointwise_accs=False)
-                self.add_batch_metric_value(
-                    ensemble, trial_num, "batch_train_acc", train_acc
-                )
-                self.add_batch_metric_value(
-                    ensemble,
-                    trial_num,
-                    "active_voters-train",
-                    [
-                        g.id
-                        for g in ensemble.delegation_mechanism.get_gurus(
-                            ensemble.voters
-                        )
-                    ],
-                )
+                    # Delegate
+                    train_acc_history = self.get_batch_metric_value(
+                        ensemble=ensemble,
+                        trial_num=trial_num,
+                        metric_name="batch_train_acc",
+                    )
 
-                # Delegate
-                train_acc_history = self.get_batch_metric_value(
-                    ensemble=ensemble,
-                    trial_num=trial_num,
-                    metric_name="batch_train_acc",
-                )
+                    # if ensemble.name == "proba_slope_delegations":
+                    #     print("Trial", trial_num)
+                    #     print(len(train_acc_history))
+                    #     print()
 
-                # if ensemble.name == "proba_slope_delegations":
-                #     print("Trial", trial_num)
-                #     print(len(train_acc_history))
-                #     print()
+                    ensemble.update_delegations(
+                        accs=train_acc_history, train=True, t_increment=1
+                    )  # For ucb, if train is true dont do anything. We want to train all clfs
 
-                ensemble.update_delegations(
-                    accs=train_acc_history, train=True, t_increment=1
-                )  # For ucb, if train is true dont do anything. We want to train all clfs
-
-        if self.verbose:
-            print("Finished training. Starting testing.")
+            if self.verbose:
+                print("Finished training. Starting testing.")
 
         # 3 - Test each ensemble on each increment of data, as applicable.
         # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
-        for images, labels in self.test_data_loader:
-            for ensemble in self.ensembles:
-                # # Train on a batch of data -- probably shouldn't during testing?
-                # ensemble.learn_batch(images, labels)
+                
+        
+        for experience in self.benchmark.test_stream:
+        # for images, labels in self.train_data_loader:
 
-                # # t_increment is the number of samples in the current batch
-                # t_increment = len(images)
+            my_dataloader = DataLoader(experience.dataset, batch_size=10, shuffle=True)
+            # Run one epoch
+            for images, labels, task in my_dataloader:
+        # for images, labels in self.test_data_loader:
+                for ensemble in self.ensembles:
+                    # # Train on a batch of data -- probably shouldn't during testing?
+                    # ensemble.learn_batch(images, labels)
 
-                # Record performance
-                test_acc = ensemble.score(
-                    images, labels, record_pointwise_accs=True
-                )  # we need to record guru pointwise accs on the test set for ucb delegation
-                self.add_batch_metric_value(
-                    ensemble, trial_num, "batch_test_acc", test_acc
-                )
-                self.add_batch_metric_value(
-                    ensemble,
-                    trial_num,
-                    "active_voters-test",
-                    [
-                        g.id
-                        for g in ensemble.delegation_mechanism.get_gurus(
-                            ensemble.voters
-                        )
-                    ],
-                )
+                    # # t_increment is the number of samples in the current batch
+                    # t_increment = len(images)
 
-                # Delegate
-                test_acc_history = self.get_batch_metric_value(
-                    ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc"
-                )
-                ensemble.update_delegations(
-                    accs=test_acc_history, train=False, t_increment=1
-                )
+                    # Record performance
+                    test_acc = ensemble.score(
+                        images, labels, record_pointwise_accs=True
+                    )  # we need to record guru pointwise accs on the test set for ucb delegation
+                    self.add_batch_metric_value(
+                        ensemble, trial_num, "batch_test_acc", test_acc
+                    )
+                    self.add_batch_metric_value(
+                        ensemble,
+                        trial_num,
+                        "active_voters-test",
+                        [
+                            g.id
+                            for g in ensemble.delegation_mechanism.get_gurus(
+                                ensemble.voters
+                            )
+                        ],
+                    )
+
+                    # Delegate
+                    test_acc_history = self.get_batch_metric_value(
+                        ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc"
+                    )
+                    ensemble.update_delegations(
+                        accs=test_acc_history, train=False, t_increment=1
+                    )
 
         if self.verbose:
             print(self.batch_metric_values)
