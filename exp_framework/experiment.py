@@ -17,7 +17,15 @@ class Experiment:
     A single Experiment class creates, trains, and compares several types of ensemble over multiple trials.
     """
 
-    def __init__(self, n_trials, ensembles, benchmark, strategies_to_evaluate=None, seed=None, verbose=False):
+    def __init__(
+        self,
+        n_trials,
+        ensembles,
+        benchmark,
+        strategies_to_evaluate=None,
+        seed=None,
+        verbose=False,
+    ):
         self.window_size = 10
         self.batch_size = 128
 
@@ -94,12 +102,14 @@ class Experiment:
         current_digit_group = 0
 
         for experience in self.benchmark.train_stream:
-        # for images, labels in self.train_data_loader:
+            # for images, labels in self.train_data_loader:
             ds = experience.dataset
             # ds = shuffle_dataset(experience.dataset)  # Turned off so that experience dataset matches what is being learned by ensemble
 
             # my_dataloader = DataLoader(ds, batch_size=self.batch_size, shuffle=True)
-            my_dataloader = TaskBalancedDataLoader(ds, batch_size=self.batch_size, shuffle=True)
+            my_dataloader = TaskBalancedDataLoader(
+                ds, batch_size=self.batch_size, shuffle=True
+            )
             # Run one epoch
             for images, labels, task in my_dataloader:
                 # print("images", images)
@@ -112,12 +122,16 @@ class Experiment:
                 #             f"Switching from digit group {self.train_digit_groups[current_digit_group]} to {self.train_digit_groups[current_digit_group+1]}"
                 #         )
                 #     current_digit_group += 1
-                for ensemble in self.ensembles:  # TODO: use train_models from ensemble.py?
+                for (
+                    ensemble
+                ) in self.ensembles:  # TODO: use train_models from ensemble.py?
                     # Train on a batch of data
                     ensemble.learn_batch(images, labels)
 
                     # Record performance - do this before any delegation so there's at least some data
-                    train_acc = ensemble.score(images, labels, record_pointwise_accs=False)
+                    train_acc = ensemble.score(
+                        images, labels, record_pointwise_accs=False
+                    )
                     self.add_batch_metric_value(
                         ensemble.name, trial_num, "batch_train_acc", train_acc
                     )
@@ -152,14 +166,17 @@ class Experiment:
             for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
                 strat.train(experience)
                 batch_acc = eval_plugin.get_all_metrics()
-                batch_t, batch_acc_vals = batch_acc['Top1_Acc_MB/train_phase/train_stream/Task000']
+                batch_t, batch_acc_vals = batch_acc[
+                    "Top1_Acc_MB/train_phase/train_stream/Task000"
+                ]
                 print("Length of batch accs: ", len(batch_acc_vals))
                 for idx, ba in enumerate(batch_acc_vals):
-                    self.add_batch_metric_value(model_name=strat_name,
-                                                trial_num=idx,
-                                                metric_name="batch_train_acc",
-                                                metric_value=ba)
-
+                    self.add_batch_metric_value(
+                        model_name=strat_name,
+                        trial_num=idx,
+                        metric_name="batch_train_acc",
+                        metric_value=ba,
+                    )
 
             if self.verbose:
                 print("Finished training. Starting testing.")
@@ -175,21 +192,31 @@ class Experiment:
             print("\n")
             batch_acc = eval_plugin.get_all_metrics()
             print(batch_acc)
-            exit()
-            batch_t, batch_acc = batch_acc['Top1_Acc_MB/test_phase/test_stream/Task000']
-            for idx, ba in enumerate(batch_acc):
-                self.add_batch_metric_value(model_name=strat_name,
-                                            trial_num=idx,
-                                            metric_name="batch_test_acc",
-                                            metric_value=ba)
-        
+            # exit()
+            # batch_t, batch_acc = batch_acc["Top1_Acc_MB/test_phase/test_stream/Task000"]
+            # for idx, ba in enumerate(batch_acc):
+            #     self.add_batch_metric_value(
+            #         model_name=strat_name,
+            #         trial_num=idx,
+            #         metric_name="batch_test_acc",
+            #         metric_value=ba,
+            #     )
+
+        experience_results = {ensemble.name: [] for ensemble in self.ensembles}
+
         for experience in self.benchmark.test_stream:
+            print(experience)
             # for images, labels in self.train_data_loader:
             ds = experience.dataset
             # ds = shuffle_dataset(experience.dataset)  # Turned off so that experience dataset matches what is being learned by ensemble
 
             # my_dataloader = DataLoader(ds, batch_size=10, shuffle=True)
-            my_dataloader = TaskBalancedDataLoader(ds, batch_size=self.batch_size, shuffle=True)
+            my_dataloader = TaskBalancedDataLoader(
+                ds, batch_size=self.batch_size, shuffle=True
+            )
+
+            inner_loop_results = {ensemble.name: [] for ensemble in self.ensembles}
+
             # Run one epoch
             for images, labels, task in my_dataloader:
                 # for images, labels in self.test_data_loader:
@@ -219,14 +246,25 @@ class Experiment:
                         ],
                     )
 
+                    inner_loop_results[ensemble.name].append(test_acc)
+
                     # Delegate
                     test_acc_history = self.get_batch_metric_value(
-                        model_name=ensemble.name, trial_num=trial_num, metric_name="batch_test_acc"
+                        model_name=ensemble.name,
+                        trial_num=trial_num,
+                        metric_name="batch_test_acc",
                     )
                     ensemble.update_delegations(
                         accs=test_acc_history, train=False, t_increment=1
                     )
 
+            for ensemble in self.ensembles:
+                experience_results[ensemble.name].append(
+                    np.mean(inner_loop_results[ensemble.name])
+                )
+
+        print("Experience results are: ")
+        print(experience_results)
 
         # for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
         #     strat.eval(self.benchmark.test_stream)
@@ -327,8 +365,9 @@ class Experiment:
                 bm_stds = np.std(bm_values, axis=0)
                 aggregate_results[ens_name][f"{bm}-mean"] = bm_means
                 aggregate_results[ens_name][f"{bm}-std"] = bm_stds
-        
+
         return aggregate_results
+
 
 def calculate_avg_std_test_accs(exp, ensemble_name, n_trials):
     """
