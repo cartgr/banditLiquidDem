@@ -6,6 +6,7 @@ import random
 import numpy as np
 import torch
 from torch.utils.data.dataloader import DataLoader
+from avalanche.benchmarks.utils.data_loader import TaskBalancedDataLoader
 import os
 from .data_utils import Data
 from .data_utils import shuffle_dataset
@@ -16,34 +17,15 @@ class Experiment:
     A single Experiment class creates, trains, and compares several types of ensemble over multiple trials.
     """
 
-    def __init__(self, n_trials, ensembles, benchmark, seed=None, verbose=False, ):
+    def __init__(self, n_trials, ensembles, benchmark, strategies_to_evaluate=None, seed=None, verbose=False):
         self.window_size = 10
         self.batch_size = 128
-        # self.train_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-        # self.train_digit_groups = data.train_digit_groups
-        # self.train_digit_groups = [
-        #     [0, 1, 2, 3, 4, 5, 6, 7, 8],
-        #     [1, 2, 3, 4, 5, 6, 7, 8, 9]
-        # ]
-        # self.test_digit_groups = data.test_digit_groups
-        # self.test_digit_groups = [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]]
-        # self.test_digit_groups = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-        # self.test_digit_groups = [[2, 3], [0, 1], [8, 9], [4, 5], [6, 7]]
-        # self.test_digit_groups = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
-
-        # self.train_data_loader, self.train_splits = learning_utils.create_mnist_loaders(
-        #     digit_groups=self.train_digit_groups, batch_size=self.batch_size, train=True
-        # )
-        # self.test_data_loader, self.test_splits = learning_utils.create_mnist_loaders(
-        #     digit_groups=self.test_digit_groups, batch_size=self.batch_size, train=False
-        # )
-
-        # self.train_data_loader = data.train_data_loader
-        # self.train_splits = data.train_splits
-        # self.test_data_loader = data.test_data_loader
-        # self.test_splits = data.test_splits
 
         self.benchmark = benchmark
+
+        if (not strategies_to_evaluate) or len(strategies_to_evaluate) == 1:
+            strategies_to_evaluate = {}
+        self.strategies_to_compare = strategies_to_evaluate
 
         self.ensembles = ensembles
         self.n_trials = n_trials
@@ -113,9 +95,11 @@ class Experiment:
 
         for experience in self.benchmark.train_stream:
         # for images, labels in self.train_data_loader:
-            ds = shuffle_dataset(experience.dataset)
+            ds = experience.dataset
+            # ds = shuffle_dataset(experience.dataset)  # Turned off so that experience dataset matches what is being learned by ensemble
 
-            my_dataloader = DataLoader(ds, batch_size=self.batch_size, shuffle=True)
+            # my_dataloader = DataLoader(ds, batch_size=self.batch_size, shuffle=True)
+            my_dataloader = TaskBalancedDataLoader(ds, batch_size=self.batch_size, shuffle=True)
             # Run one epoch
             for images, labels, task in my_dataloader:
                 # print("images", images)
@@ -135,10 +119,10 @@ class Experiment:
                     # Record performance - do this before any delegation so there's at least some data
                     train_acc = ensemble.score(images, labels, record_pointwise_accs=False)
                     self.add_batch_metric_value(
-                        ensemble, trial_num, "batch_train_acc", train_acc
+                        ensemble.name, trial_num, "batch_train_acc", train_acc
                     )
                     self.add_batch_metric_value(
-                        ensemble,
+                        ensemble.name,
                         trial_num,
                         "active_voters-train",
                         [
@@ -151,7 +135,7 @@ class Experiment:
 
                     # Delegate
                     train_acc_history = self.get_batch_metric_value(
-                        ensemble=ensemble,
+                        model_name=ensemble.name,
                         trial_num=trial_num,
                         metric_name="batch_train_acc",
                     )
@@ -165,21 +149,47 @@ class Experiment:
                         accs=train_acc_history, train=True, t_increment=1
                     )  # For ucb, if train is true dont do anything. We want to train all clfs
 
+            for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
+                strat.train(experience)
+                batch_acc = eval_plugin.get_all_metrics()
+                batch_t, batch_acc_vals = batch_acc['Top1_Acc_MB/train_phase/train_stream/Task000']
+                print("Length of batch accs: ", len(batch_acc_vals))
+                for idx, ba in enumerate(batch_acc_vals):
+                    self.add_batch_metric_value(model_name=strat_name,
+                                                trial_num=idx,
+                                                metric_name="batch_train_acc",
+                                                metric_value=ba)
+
+
             if self.verbose:
                 print("Finished training. Starting testing.")
 
         # 3 - Test each ensemble on each increment of data, as applicable.
         # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
-                
+
+        # for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
+        #     strat.eval(self.benchmark.test_stream)
+        #     batch_acc = eval_plugin.get_all_metrics()
+        #     print(batch_acc)
+        #     exit()
+        #     batch_t, batch_acc = batch_acc['Top1_Acc_MB/test_phase/test_stream/Task000']
+        #     for idx, ba in enumerate(batch_acc):
+        #         self.add_batch_metric_value(model_name=strat_name,
+        #                                     trial_num=idx,
+        #                                     metric_name="batch_test_acc",
+        #                                     metric_value=ba)
         
         for experience in self.benchmark.test_stream:
-        # for images, labels in self.train_data_loader:
+            # for images, labels in self.train_data_loader:
+            ds = experience.dataset
+            # ds = shuffle_dataset(experience.dataset)  # Turned off so that experience dataset matches what is being learned by ensemble
 
-            my_dataloader = DataLoader(experience.dataset, batch_size=10, shuffle=True)
+            # my_dataloader = DataLoader(ds, batch_size=10, shuffle=True)
+            my_dataloader = TaskBalancedDataLoader(ds, batch_size=self.batch_size, shuffle=True)
             # Run one epoch
             for images, labels, task in my_dataloader:
-        # for images, labels in self.test_data_loader:
+                # for images, labels in self.test_data_loader:
                 for ensemble in self.ensembles:
                     # # Train on a batch of data -- probably shouldn't during testing?
                     # ensemble.learn_batch(images, labels)
@@ -192,10 +202,10 @@ class Experiment:
                         images, labels, record_pointwise_accs=True
                     )  # we need to record guru pointwise accs on the test set for ucb delegation
                     self.add_batch_metric_value(
-                        ensemble, trial_num, "batch_test_acc", test_acc
+                        ensemble.name, trial_num, "batch_test_acc", test_acc
                     )
                     self.add_batch_metric_value(
-                        ensemble,
+                        ensemble.name,
                         trial_num,
                         "active_voters-test",
                         [
@@ -208,18 +218,31 @@ class Experiment:
 
                     # Delegate
                     test_acc_history = self.get_batch_metric_value(
-                        ensemble=ensemble, trial_num=trial_num, metric_name="batch_test_acc"
+                        model_name=ensemble.name, trial_num=trial_num, metric_name="batch_test_acc"
                     )
                     ensemble.update_delegations(
                         accs=test_acc_history, train=False, t_increment=1
                     )
+
+
+        # for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
+        #     strat.eval(self.benchmark.test_stream)
+        #     batch_acc = eval_plugin.get_all_metrics()
+        #     print(batch_acc)
+        #     exit()
+        #     batch_t, batch_acc = batch_acc['Top1_Acc_MB/test_phase/test_stream/Task000']
+        #     for idx, ba in enumerate(batch_acc):
+        #         self.add_batch_metric_value(model_name=strat_name,
+        #                                     trial_num=idx,
+        #                                     metric_name="batch_test_acc",
+        #                                     metric_value=ba)
 
         if self.verbose:
             print(self.batch_metric_values)
 
         return self.batch_metric_values
 
-    def add_batch_metric_value(self, ensemble, trial_num, metric_name, metric_value):
+    def add_batch_metric_value(self, model_name, trial_num, metric_name, metric_value):
         """
         Record the value of some metric that has a value at each individual batch/increment of learning.
         e.g. train/test accuracy, number of gurus, guru weights, etc.
@@ -231,18 +254,18 @@ class Experiment:
             metric_name (_type_): _description_
             metric_value (_type_): _description_
         """
-        if ensemble.name not in self.batch_metric_values:
-            self.batch_metric_values[ensemble.name] = dict()
-        if trial_num not in self.batch_metric_values[ensemble.name]:
-            self.batch_metric_values[ensemble.name][trial_num] = dict()
-        if metric_name not in self.batch_metric_values[ensemble.name][trial_num]:
-            self.batch_metric_values[ensemble.name][trial_num][metric_name] = []
+        if model_name not in self.batch_metric_values:
+            self.batch_metric_values[model_name] = dict()
+        if trial_num not in self.batch_metric_values[model_name]:
+            self.batch_metric_values[model_name][trial_num] = dict()
+        if metric_name not in self.batch_metric_values[model_name][trial_num]:
+            self.batch_metric_values[model_name][trial_num][metric_name] = []
 
-        self.batch_metric_values[ensemble.name][trial_num][metric_name].append(
+        self.batch_metric_values[model_name][trial_num][metric_name].append(
             metric_value
         )
 
-    def get_batch_metric_value(self, ensemble, trial_num, metric_name):
+    def get_batch_metric_value(self, model_name, trial_num, metric_name):
         """
         Get all values of some metric stored by an ensemble.
 
@@ -253,14 +276,14 @@ class Experiment:
             metric_name (_type_): _description_
         """
         value = []
-        if ensemble.name not in self.batch_metric_values:
+        if model_name not in self.batch_metric_values:
             pass
-        elif trial_num not in self.batch_metric_values[ensemble.name]:
+        elif trial_num not in self.batch_metric_values[model_name]:
             pass
-        elif metric_name not in self.batch_metric_values[ensemble.name][trial_num]:
+        elif metric_name not in self.batch_metric_values[model_name][trial_num]:
             pass
 
-        value = self.batch_metric_values[ensemble.name][trial_num][metric_name]
+        value = self.batch_metric_values[model_name][trial_num][metric_name]
         return value
 
     def add_experiment_metric_value(self, metric_name, metric_value):
