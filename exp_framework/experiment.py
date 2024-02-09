@@ -168,17 +168,20 @@ class Experiment:
         # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
 
-        # for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
-        #     strat.eval(self.benchmark.test_stream)
-        #     batch_acc = eval_plugin.get_all_metrics()
-        #     print(batch_acc)
-        #     exit()
-        #     batch_t, batch_acc = batch_acc['Top1_Acc_MB/test_phase/test_stream/Task000']
-        #     for idx, ba in enumerate(batch_acc):
-        #         self.add_batch_metric_value(model_name=strat_name,
-        #                                     trial_num=idx,
-        #                                     metric_name="batch_test_acc",
-        #                                     metric_value=ba)
+        for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
+            r = strat.eval(self.benchmark.test_stream)
+            print("Results of evaluation are: ")
+            print(r)
+            print("\n")
+            batch_acc = eval_plugin.get_all_metrics()
+            print(batch_acc)
+            exit()
+            batch_t, batch_acc = batch_acc['Top1_Acc_MB/test_phase/test_stream/Task000']
+            for idx, ba in enumerate(batch_acc):
+                self.add_batch_metric_value(model_name=strat_name,
+                                            trial_num=idx,
+                                            metric_name="batch_test_acc",
+                                            metric_value=ba)
         
         for experience in self.benchmark.test_stream:
             # for images, labels in self.train_data_loader:
