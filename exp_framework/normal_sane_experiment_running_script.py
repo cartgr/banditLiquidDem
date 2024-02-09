@@ -1,231 +1,214 @@
-from sklearn import experimental
-from exp_framework.Ensemble import Ensemble
-from exp_framework.experiment import Experiment
-from exp_framework.Ensemble import Ensemble, PretrainedEnsemble
+import os
+from exp_framework.Ensemble import Ensemble, PretrainedEnsemble, StudentExpertEnsemble
 from exp_framework.delegation import (
     DelegationMechanism,
     UCBDelegationMechanism,
     ProbaSlopeDelegationMechanism,
     RestrictedMaxGurusDelegationMechanism,
+    StudentExpertDelegationMechanism,
 )
+from exp_framework.learning import Net
 from exp_framework.experiment import (
     Experiment,
     calculate_avg_std_test_accs,
     calculate_avg_std_train_accs,
 )
+from avalanche.training.supervised import Naive
 from matplotlib import pyplot as plt
 from exp_framework.data_utils import Data
+from avalanche.benchmarks.classic import RotatedMNIST, SplitMNIST
 import numpy as np
 import matplotlib as mpl
 import seaborn as sns
+from itertools import product
+import pandas as pd
+import torch.optim as optim
+from torch.nn import CrossEntropyLoss
 
-print("Starting!")
+from avalanche.training.plugins import (
+    CWRStarPlugin,
+    ReplayPlugin,
+    EWCPlugin,
+    TrainGeneratorAfterExpPlugin,
+    LwFPlugin,
+    SynapticIntelligencePlugin,
+)
+from avalanche.training.plugins import EvaluationPlugin
+from exp_framework.MinibatchEvalAccuracy import MinibatchEvalAccuracy
+from avalanche.evaluation.metrics import accuracy_metrics
 
 batch_size = 128
 window_size = 50
-num_trials = 10
-n_voters = 10
+num_trials = 2
+n_voters = 5
 
 
-data = Data(
-    data_set_name="mnist",
-    # train_digit_groups=[range(5), range(5, 10)],
-    # train_digit_groups=[[0, 1, 2], [3, 4, 5,], [6, 7, 8, 9]],
-    train_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
-    # test_digit_groups=[[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]],
-    # test_digit_groups=[range(5), range(5, 10)],
-    test_digit_groups=[range(10)],
-    batch_size=batch_size,
-)
+data = SplitMNIST(n_experiences=5, fixed_class_order=list(range(10)))
 
 NOOP_del_mech = DelegationMechanism(batch_size=batch_size, window_size=window_size)
 
-# create several mechanisms with a single active voter
-random_better = ProbaSlopeDelegationMechanism(
-    batch_size=batch_size,
-    window_size=window_size,
-    max_active=1,
-    probability_function="random_better"
-)
-probabilistic_better = ProbaSlopeDelegationMechanism(
-    batch_size=batch_size,
-    window_size=window_size,
-    max_active=1,
-    probability_function="probabilistic_better"
-)
-probabilistic_weighted = ProbaSlopeDelegationMechanism(
-    batch_size=batch_size,
-    window_size=window_size,
-    max_active=1,
-    probability_function="probabilistic_weighted"
-)
+# probability_functions = [
+#     "random_better",
+#     "probabilistic_better",
+#     "probabilistic_weighted",
+# ]
+# score_functions = [
+#     "accuracy_score",
+#     "balanced_accuracy_score",
+#     "f1_score",
+#     "precision_score",
+#     "recall_score",
+#     "top_k_accuracy_score",
+#     "roc_auc_score",
+#     "log_loss_score",
+#     "max_diversity",
+# ]
+probability_functions = ["max_diversity"]
+score_functions = ["accuracy_score"]
+max_active_gurus = 1
+
+del_mechs = {"full-ensemble": NOOP_del_mech}
+for prob_func, score_func in product(probability_functions, score_functions):
+    dm = ProbaSlopeDelegationMechanism(
+        batch_size=batch_size,
+        window_size=window_size,
+        max_active=max_active_gurus,
+        probability_function=prob_func,
+        score_method=score_func,
+    )
+    del_mechs[f"{prob_func}-{score_func}"] = dm
+
 
 ensembles_dict = {
-    "full_ensemble":
-    Ensemble(
+    dm_name: Ensemble(
         training_epochs=1,
         n_voters=n_voters,
-        delegation_mechanism=NOOP_del_mech,
-        name="full_ensemble",
-        input_dim=28 * 28,
-        output_dim=10,
-    ),
-    "random_better_delegations":
-    Ensemble(
-        training_epochs=1,
-        n_voters=n_voters,
-        delegation_mechanism=random_better,
-        name="random_better_delegations",
-        input_dim=28 * 28,
-        output_dim=10,
-    ),
-    "probabilistic_better_delegations":
-    Ensemble(
-        training_epochs=1,
-        n_voters=n_voters,
-        delegation_mechanism=probabilistic_better,
-        name="probabilistic_better_delegations",
-        input_dim=28 * 28,
-        output_dim=10,
-    ),
-    "probabilistic_weighted_delegations":
-    Ensemble(
-        training_epochs=1,
-        n_voters=n_voters,
-        delegation_mechanism=probabilistic_weighted,
-        name="probabilistic_weighted_delegations",
-        input_dim=28 * 28,
-        output_dim=10,
-    ),
-}
-
-
-print("Creating Experiment")
-exp = Experiment(n_trials=num_trials, ensembles=list(ensembles_dict.values()), data=data, seed=4090)
-
-print("Running Experiment")
-_ = exp.run()
-
-exit()
-
-ensembles = [
-    Ensemble(
-        training_epochs=1,
-        n_voters=n_voters,
-        delegation_mechanism="del_mech",
-        name="simple_delegating_ensemble",
+        delegation_mechanism=dm,
+        name=dm_name,
         input_dim=28 * 28,
         output_dim=10,
     )
-]
-
-exp = Experiment(n_trials=1, ensembles=ensembles, data=data)
-batch_metric_values = exp.run()
-
-####
-# Temporary plotting garbage code, may want to generalize a bit and turn into reusable code
-####
-
-print("\n\n----------------------\n\n")
-print(batch_metric_values)
+    for dm_name, dm in del_mechs.items()
+}
 
 
-def plot_accuracy_and_active_voters(batch_accuracies, active_voter_tuples, title=None):
-    """
-    Plot the batch accuracies given, coloured so each unique set of active voters gets a unique colour.
+def initialize_strategies_to_evaluate():
 
-    Args:
-        batch_accuracies (_type_): _description_
-        active_voter_tuples (_type_): _description_
-    """
+    model = Net(input_dim=28 * 28, output_dim=10)
+    # model = SimpleMLP(num_classes=10)
+    optimize = optim.Adam(model.parameters(), lr=0.001)
 
-    def legend_without_duplicate_labels(ax):
-        handles, labels = ax.get_legend_handles_labels()
-        unique = [
-            (h, l)
-            for i, (h, l) in enumerate(zip(handles, labels))
-            if l not in labels[:i]
-        ]
-        unique = sorted(unique, key=lambda x: x[1])
-        ax.legend(*zip(*unique))
-
-    unique_active_sets = set(tuple(av) for av in active_voter_tuples)
-    voter_colours = {
-        v_tuple: tuple(np.random.choice(range(256), size=3) / 255)
-        for v_idx, v_tuple in enumerate(unique_active_sets)
+    plugins_to_evaluate = {
+        "LwF": LwFPlugin(),
+        # "EWC": EWCPlugin(ewc_lambda=0.001),
+        # "SynapticIntelligence": SynapticIntelligencePlugin(si_lambda=0.5),
+        # "Replay": ReplayPlugin(mem_size=100),
     }
 
-    for batch_idx in range(len(batch_accuracies)):
-        acc = batch_accuracies[batch_idx]
-        active_tuple = tuple(active_voter_tuples[batch_idx])
-        colour = voter_colours[active_tuple]
-        label = f"Voters {active_tuple}"
+    strategies_to_evaluate = {}
+    for name, pte in plugins_to_evaluate.items():
+        mb_eval = MinibatchEvalAccuracy()
+        evp = EvaluationPlugin(
+            accuracy_metrics(minibatch=True, epoch=True, experience=True, stream=True),
+            mb_eval
+        )
+        cl_strategy = Naive(
+            model=model,
+            optimizer=optimize,
+            criterion=CrossEntropyLoss(),
+            train_mb_size=batch_size,
+            train_epochs=1,
+            eval_mb_size=batch_size,
+            plugins=[pte, evp, mb_eval],
+            # evaluator=evp,
+        )
+        strategies_to_evaluate[name] = (cl_strategy, evp)
+    
+    return strategies_to_evaluate
 
-        plt.scatter(batch_idx, acc, color=colour, marker=".", label=label)
-
-    legend_without_duplicate_labels(plt.gca())
-    plt.ylim((0, 1))
-    if title is None:
-        title = "Ensemble Accuracy"
-    plt.title(title)
-    plt.xlabel("Batch Number")
-    plt.ylabel("Accuracy")
-    plt.show()
-    plt.close()
-    plt.clf()
 
 
-for i in exp.train_splits:
-    plt.axvline(x=i, color="red", linestyle="--")
-np.random.seed(0)
-active_voters = batch_metric_values["simple_delegating_ensemble"][0][
-    "active_voters-train"
-]
-train_accs = batch_metric_values["simple_delegating_ensemble"][0]["batch_train_acc"]
 
-plot_accuracy_and_active_voters(
-    train_accs, active_voters, title="Ensemble Training Accuracy"
+# Train ensembles - single guru
+
+one_active_exp = Experiment(
+    n_trials=num_trials,
+    ensembles=list(ensembles_dict.values()),
+    benchmark=data,
+    strategies_to_evaluate=initialize_strategies_to_evaluate,
 )
+_ = one_active_exp.run()
 
 
-for i in exp.test_splits:
-    plt.axvline(x=i, color="red", linestyle="--")
-np.random.seed(0)
-active_voters = batch_metric_values["simple_delegating_ensemble"][0][
-    "active_voters-test"
-]
-test_accs = batch_metric_values["simple_delegating_ensemble"][0]["batch_test_acc"]
-plot_accuracy_and_active_voters(
-    test_accs, active_voters, title="Ensemble Testing Accuracy"
-)
 
 
-# # active_voters = [a[0] for a in active_voters]
-# unique_active_sets = set(tuple(av) for av in active_voters)
-# active_tuples = [tuple(av) for av in active_voters]
-# print(f"All active voter sets are {unique_active_sets}")
 
-# default_colours = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2',
-#  '#7f7f7f', '#bcbd22', '#17becf']
+batch_metrics = one_active_exp.get_aggregate_batch_metrics()
+dfs = []
+for ens, metric_dict in batch_metrics.items():
+    df = pd.DataFrame.from_dict(metric_dict, orient="index")
+    df["ensemble_name"] = ens
+    dfs.append(df)
+df = pd.concat(dfs)
+col_order = [len(df.columns) - 1] + list(range(len(df.columns) - 1))
+df = df[df.columns[col_order]]
+print(df)
+file_prefix = f"class_incremental_single_guru-trials={num_trials}-batch_size={batch_size}_window_size={window_size}"
+path = "results"
 
-# voter_colours = {
-#     v_tuple: tuple(np.random.choice(range(256), size=3)/255) for v_idx, v_tuple in enumerate(unique_active_sets)
-# }
+if not os.path.exists(path):
+    os.mkdir(path)
+
+df.to_csv(f"{path}/{file_prefix}.csv")
 
 
-# for batch_idx in range(len(train_accs)):
-#     acc = train_accs[batch_idx]
-#     active_tuple = tuple(active_voters[batch_idx])
-#     colour = voter_colours[active_tuple]
-#     label = f"Voters {active_tuple}"
 
-#     plt.scatter(batch_idx, acc, color=colour, marker=".", label=label)
 
-# # plt.plot(train_accs)
-# plt.ylim((0, 1))
-# plt.title("Training Accuracy")
-# plt.xlabel("Batch Number")
-# plt.ylabel("Accuracy")
-# plt.show()
 
-# print("Finished experiment!")
+
+
+# Print results - single guru
+
+print(f"Results for mechanisms with max_active_gurus = {max_active_gurus}:")
+
+# Collect and print train accuracies - aggregate and by batch
+train_results_dict = dict()
+for ens_name, ensemble in ensembles_dict.items():
+    train_acc, train_acc_std = calculate_avg_std_train_accs(
+        one_active_exp, ens_name, num_trials
+    )
+    train_results_dict[ens_name] = (train_acc, train_acc_std)
+
+for strat_name, (strat, eval_plugin) in initialize_strategies_to_evaluate().items():
+    train_acc, train_acc_std = calculate_avg_std_train_accs(
+        one_active_exp, strat_name, num_trials
+    )
+    train_results_dict[strat_name] = (train_acc, train_acc_std)
+
+for ens_name, (train_acc, train_acc_std) in train_results_dict.items():
+    print(
+        f"Mean train acc for {ens_name}: {round(np.mean(train_acc), 3)}+-{round(np.mean(train_acc_std), 3)}"
+    )
+# for ens_name, (train_acc, train_acc_std) in train_results_dict.items():
+#     print(f"All train accs for {ens_name}: {train_acc}")
+
+print("--------------")
+
+# Collect and print test accuracies
+results_dict = dict()
+for ens_name, ensemble in ensembles_dict.items():
+    test_acc, test_acc_std = calculate_avg_std_test_accs(
+        one_active_exp, ens_name, num_trials
+    )
+    results_dict[ens_name] = (test_acc, test_acc_std)
+
+for strat_name, (strat, eval_plugin) in initialize_strategies_to_evaluate().items():
+    test_acc, test_acc_std = calculate_avg_std_train_accs(
+        one_active_exp, strat_name, num_trials
+    )
+    results_dict[strat_name] = (test_acc, test_acc_std)
+
+for ens_name, (test_acc, test_acc_std) in results_dict.items():
+    print(
+        f"Mean test acc for {ens_name}: {round(np.mean(test_acc), 3)}+-{round(np.mean(test_acc_std), 3)}"
+    )

@@ -31,9 +31,9 @@ class Experiment:
 
         self.benchmark = benchmark
 
-        if (not strategies_to_evaluate) or len(strategies_to_evaluate) == 1:
-            strategies_to_evaluate = {}
-        self.strategies_to_compare = strategies_to_evaluate
+        # if (not strategies_to_evaluate) or len(strategies_to_evaluate) == 0:
+        #     strategies_to_evaluate = {}
+        self.strategy_generator = strategies_to_evaluate
 
         self.ensembles = ensembles
         self.n_trials = n_trials
@@ -83,8 +83,13 @@ class Experiment:
         #     self.test_data_loader = data.test_data_loader
         #     self.test_splits = data.test_splits
 
+        print("Starting trial ", trial_num)
+
         for ensemble in self.ensembles:
             ensemble.initialize_voters()
+        
+
+        strategies_to_compare = self.strategy_generator()
 
         """
         My current thought is to essentially train and test incrementally with opportunity for delegation in each of those.
@@ -163,44 +168,30 @@ class Experiment:
                         accs=train_acc_history, train=True, t_increment=1
                     )  # For ucb, if train is true dont do anything. We want to train all clfs
 
-            for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
+            # Train each avalanche strategy with the current data
+            for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
                 strat.train(experience)
-                batch_acc = eval_plugin.get_all_metrics()
-                batch_t, batch_acc_vals = batch_acc[
-                    "Top1_Acc_MB/train_phase/train_stream/Task000"
-                ]
-                print("Length of batch accs: ", len(batch_acc_vals))
-                for idx, ba in enumerate(batch_acc_vals):
-                    self.add_batch_metric_value(
-                        model_name=strat_name,
-                        trial_num=idx,
-                        metric_name="batch_train_acc",
-                        metric_value=ba,
-                    )
 
             if self.verbose:
                 print("Finished training. Starting testing.")
 
+        # Record training metrics for avalanche strategies
+        for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
+            batch_acc = eval_plugin.get_all_metrics()
+            batch_t, batch_acc_vals = batch_acc[
+                "Top1_Acc_MB/train_phase/train_stream/Task000"
+            ]
+            for idx, ba in enumerate(batch_acc_vals):
+                self.add_batch_metric_value(
+                    model_name=strat_name,
+                    trial_num=trial_num,
+                    metric_name="batch_train_acc",
+                    metric_value=ba,
+                )
+
         # 3 - Test each ensemble on each increment of data, as applicable.
         # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
-
-        for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
-            r = strat.eval(self.benchmark.test_stream)
-            print("Results of evaluation are: ")
-            print(r)
-            print("\n")
-            batch_acc = eval_plugin.get_all_metrics()
-            print(batch_acc)
-            # exit()
-            # batch_t, batch_acc = batch_acc["Top1_Acc_MB/test_phase/test_stream/Task000"]
-            # for idx, ba in enumerate(batch_acc):
-            #     self.add_batch_metric_value(
-            #         model_name=strat_name,
-            #         trial_num=idx,
-            #         metric_name="batch_test_acc",
-            #         metric_value=ba,
-            #     )
 
         experience_results = {ensemble.name: [] for ensemble in self.ensembles}
 
@@ -266,7 +257,21 @@ class Experiment:
         print("Experience results are: ")
         print(experience_results)
 
-        # for strat_name, (strat, eval_plugin) in self.strategies_to_compare.items():
+        for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
+            strat.eval(self.benchmark.test_stream)
+            batch_acc = eval_plugin.get_all_metrics()
+            batch_t, batch_acc_vals = batch_acc[
+                "Top1_Acc_MB-EVAL/eval_phase/test_stream/Task000"
+            ]
+            for idx, ba in enumerate(batch_acc_vals):
+                self.add_batch_metric_value(
+                    model_name=strat_name,
+                    trial_num=trial_num,
+                    metric_name="batch_test_acc",
+                    metric_value=ba,
+                )
+
+        # for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
         #     strat.eval(self.benchmark.test_stream)
         #     batch_acc = eval_plugin.get_all_metrics()
         #     print(batch_acc)
@@ -360,6 +365,7 @@ class Experiment:
                 for t in range(self.n_trials):
                     val = self.batch_metric_values[ens_name][t][bm]
                     bm_values.append(val)
+                print(f"Batch metric values for {ens_name} and {bm} are: {bm_values}")
                 bm_values = np.asarray(bm_values)
                 bm_means = np.mean(bm_values, axis=0)
                 bm_stds = np.std(bm_values, axis=0)
