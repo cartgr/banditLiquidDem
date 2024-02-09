@@ -33,14 +33,15 @@ from avalanche.training.plugins import (
     LwFPlugin,
     SynapticIntelligencePlugin,
 )
+from avalanche.training import LwF, EWC, SynapticIntelligence, Replay
 from avalanche.training.plugins import EvaluationPlugin
 from exp_framework.MinibatchEvalAccuracy import MinibatchEvalAccuracy
 from avalanche.evaluation.metrics import accuracy_metrics
 
 batch_size = 128
 window_size = 50
-num_trials = 2
-n_voters = 5
+num_trials = 3
+n_voters = 10
 
 
 data = SplitMNIST(n_experiences=5, fixed_class_order=list(range(10)))
@@ -93,20 +94,19 @@ ensembles_dict = {
 
 
 def initialize_strategies_to_evaluate():
-
-    model = Net(input_dim=28 * 28, output_dim=10)
-    # model = SimpleMLP(num_classes=10)
-    optimize = optim.Adam(model.parameters(), lr=0.001)
-
     plugins_to_evaluate = {
         "LwF": LwFPlugin(),
-        # "EWC": EWCPlugin(ewc_lambda=0.001),
-        # "SynapticIntelligence": SynapticIntelligencePlugin(si_lambda=0.5),
+        "EWC": EWCPlugin(ewc_lambda=0.001),
+        "SynapticIntelligence": SynapticIntelligencePlugin(si_lambda=0.5),
         # "Replay": ReplayPlugin(mem_size=100),
     }
 
     strategies_to_evaluate = {}
     for name, pte in plugins_to_evaluate.items():
+        
+        model = Net(input_dim=28 * 28, output_dim=10)
+        optimize = optim.Adam(model.parameters(), lr=0.001)
+        
         mb_eval = MinibatchEvalAccuracy()
         evp = EvaluationPlugin(
             accuracy_metrics(minibatch=True, epoch=True, experience=True, stream=True),
@@ -119,8 +119,8 @@ def initialize_strategies_to_evaluate():
             train_mb_size=batch_size,
             train_epochs=1,
             eval_mb_size=batch_size,
-            plugins=[pte, evp, mb_eval],
-            # evaluator=evp,
+            # plugins=[pte, evp],
+            plugins=[pte, evp, mb_eval]
         )
         strategies_to_evaluate[name] = (cl_strategy, evp)
     
@@ -152,14 +152,14 @@ for ens, metric_dict in batch_metrics.items():
 df = pd.concat(dfs)
 col_order = [len(df.columns) - 1] + list(range(len(df.columns) - 1))
 df = df[df.columns[col_order]]
-print(df)
 file_prefix = f"class_incremental_single_guru-trials={num_trials}-batch_size={batch_size}_window_size={window_size}"
 path = "results"
 
 if not os.path.exists(path):
     os.mkdir(path)
 
-df.to_csv(f"{path}/{file_prefix}.csv")
+filepath = f"{path}/{file_prefix}.csv" 
+df.to_csv(filepath)
 
 
 
@@ -203,7 +203,7 @@ for ens_name, ensemble in ensembles_dict.items():
     results_dict[ens_name] = (test_acc, test_acc_std)
 
 for strat_name, (strat, eval_plugin) in initialize_strategies_to_evaluate().items():
-    test_acc, test_acc_std = calculate_avg_std_train_accs(
+    test_acc, test_acc_std = calculate_avg_std_test_accs(
         one_active_exp, strat_name, num_trials
     )
     results_dict[strat_name] = (test_acc, test_acc_std)

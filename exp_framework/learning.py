@@ -8,8 +8,11 @@ class Net(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-        self.fc1 = nn.Linear(input_dim, 256)
-        self.fc2 = nn.Linear(256, 64)
+        # width = 6
+        width = 256
+
+        self.fc1 = nn.Linear(input_dim, width)
+        self.fc2 = nn.Linear(width, 64)
         self.fc3 = nn.Linear(64, output_dim)
 
     def forward(self, x):
