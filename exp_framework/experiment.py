@@ -88,7 +88,7 @@ class Experiment:
 
         for ensemble in self.ensembles:
             ensemble.initialize_voters()
-        
+
         strategies_to_compare = self.strategy_generator()
 
         """
@@ -178,7 +178,9 @@ class Experiment:
         # Record training metrics for avalanche strategies
         for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
             all_metrics = eval_plugin.get_all_metrics()
-            batch_t, batch_acc_vals = all_metrics["Top1_Acc_MB/train_phase/train_stream/Task000"]
+            batch_t, batch_acc_vals = all_metrics[
+                "Top1_Acc_MB/train_phase/train_stream/Task000"
+            ]
             for idx, ba in enumerate(batch_acc_vals):
                 self.add_batch_metric_value(
                     model_name=strat_name,
@@ -187,7 +189,9 @@ class Experiment:
                     metric_value=ba,
                 )
             # Gather accuracy over each separate experience (a.k.a. group of classes)
-            train_experience_indices, train_accs = all_metrics["Top1_Acc_Epoch/train_phase/train_stream/Task000"]
+            train_experience_indices, train_accs = all_metrics[
+                "Top1_Acc_Epoch/train_phase/train_stream/Task000"
+            ]
             for idx, ta in enumerate(train_accs):
                 self.add_batch_metric_value(
                     model_name=strat_name,
@@ -201,7 +205,6 @@ class Experiment:
                     metric_name="train_experience_indices",
                     metric_value=train_experience_indices[idx],
                 )
-
 
         # 3 - Test each ensemble on each increment of data, as applicable.
         # TODO: Is it reasonable to assume the testing phase is simply scoring and (potentially) delegating?
@@ -270,11 +273,22 @@ class Experiment:
 
         print("Experience results are: ")
         print(experience_results)
+        # record the experience re
+        for ens_name, vals in experience_results.items():
+            for idx, val in enumerate(vals):
+                self.add_batch_metric_value(
+                    model_name=ens_name,
+                    trial_num=trial_num,
+                    metric_name="experience_test_acc",
+                    metric_value=val,
+                )
 
         for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
             r = strat.eval(self.benchmark.test_stream)
             all_metrics = eval_plugin.get_all_metrics()
-            batch_t, batch_acc_vals = all_metrics["Top1_Acc_MB-EVAL/eval_phase/test_stream/Task000"]
+            batch_t, batch_acc_vals = all_metrics[
+                "Top1_Acc_MB-EVAL/eval_phase/test_stream/Task000"
+            ]
             for idx, ba in enumerate(batch_acc_vals):
                 self.add_batch_metric_value(
                     model_name=strat_name,
@@ -293,13 +307,15 @@ class Experiment:
                     # go through each task "001", "002", etc. until one does not exist
                     break
             for idx, ea in enumerate(experience_test_accs):
+                # print("experience metrics on test set")
+                # print(f"Experience {idx} test acc: {ea}")
+
                 self.add_batch_metric_value(
                     model_name=strat_name,
                     trial_num=trial_num,
                     metric_name="experience_test_acc",
                     metric_value=ea,
                 )
-            
 
         # for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
         #     strat.eval(self.benchmark.test_stream)

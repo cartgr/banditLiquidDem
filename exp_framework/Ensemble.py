@@ -17,6 +17,7 @@ class Ensemble:
         name,
         input_dim=28 * 28,  # for mnist
         output_dim=10,  # for mnist
+        width=64,
     ):
         self.training_epochs = training_epochs
         self.delegation_mechanism = delegation_mechanism
@@ -28,6 +29,7 @@ class Ensemble:
 
         self.input_dim = input_dim
         self.output_dim = output_dim
+        self.width = width
 
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -45,16 +47,16 @@ class Ensemble:
         voters = []
         # voter_id = 0
         for id in range(self.n_voters):
-            model = Net(input_dim=self.input_dim, output_dim=self.output_dim).to(
-                self.device
-            )
+            model = Net(
+                input_dim=self.input_dim, output_dim=self.output_dim, width=self.width
+            ).to(self.device)
             voters.append(
                 Voter(
                     model,
                     # train_loader,
                     self.training_epochs,
                     id,
-                    score_method=self.delegation_mechanism.score_method
+                    score_method=self.delegation_mechanism.score_method,
                 )
             )
         self.voters = voters
@@ -375,7 +377,7 @@ class PretrainedEnsemble(Ensemble):
                     # train_loader,
                     self.training_epochs,
                     id,
-                    score_method=self.delegation_mechanism.score_method
+                    score_method=self.delegation_mechanism.score_method,
                 )
             )
 
@@ -532,7 +534,7 @@ class StudentExpertEnsemble:
                     # train_loader,
                     self.training_epochs,
                     id,
-                    score_method=self.delegation_mechanism.score_method
+                    score_method=self.delegation_mechanism.score_method,
                 )
             )
         self.voters = voters

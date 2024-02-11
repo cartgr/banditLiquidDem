@@ -3,13 +3,10 @@ import torch.nn as nn
 
 
 class Net(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, width=64):
         super(Net, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-
-        # width = 6
-        width = 256
 
         self.fc1 = nn.Linear(input_dim, width)
         self.fc2 = nn.Linear(width, 64)
