@@ -1,3 +1,4 @@
+from ast import mod
 from matplotlib.pyplot import tick_params
 from .learning_utils import *
 import numpy as np
@@ -6,6 +7,7 @@ import random
 import numpy as np
 import torch
 from torch.utils.data.dataloader import DataLoader
+from torch.utils.data import ConcatDataset
 from avalanche.benchmarks.utils.data_loader import TaskBalancedDataLoader
 import os
 from .data_utils import Data
@@ -105,6 +107,7 @@ class Experiment:
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
         batch_idx = 0
         current_digit_group = 0
+        experience_results = {ensemble.name: [] for ensemble in self.ensembles}
 
         for experience in self.benchmark.train_stream:
             # for images, labels in self.train_data_loader:
@@ -115,6 +118,9 @@ class Experiment:
             my_dataloader = TaskBalancedDataLoader(
                 ds, batch_size=self.batch_size, shuffle=True
             )
+
+            inner_loop_results = {ensemble.name: [] for ensemble in self.ensembles}
+            
             # Run one epoch
             for images, labels, task in my_dataloader:
                 # print("images", images)
@@ -152,6 +158,8 @@ class Experiment:
                         ],
                     )
 
+                    inner_loop_results[ensemble.name].append(train_acc)
+
                     # Delegate
                     train_acc_history = self.get_batch_metric_value(
                         model_name=ensemble.name,
@@ -170,10 +178,31 @@ class Experiment:
 
             # Train each avalanche strategy with the current data
             for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
+                print(f"Training: {strat_name}!")
                 strat.train(experience)
+            
+
+            for ensemble in self.ensembles:
+                experience_results[ensemble.name].append(
+                    np.mean(inner_loop_results[ensemble.name])
+                )
 
             if self.verbose:
                 print("Finished training. Starting testing.")
+
+        print("Train Experience results are: ")
+        print(experience_results)
+        # record the experience re
+        for ens_name, vals in experience_results.items():
+            for idx, val in enumerate(vals):
+                self.add_batch_metric_value(
+                    model_name=ens_name,
+                    trial_num=trial_num,
+                    metric_name="experience_train_acc",
+                    metric_value=val,
+                )
+
+
 
         # Record training metrics for avalanche strategies
         for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
@@ -271,7 +300,7 @@ class Experiment:
                     np.mean(inner_loop_results[ensemble.name])
                 )
 
-        print("Experience results are: ")
+        print("Test Experience results are: ")
         print(experience_results)
         # record the experience re
         for ens_name, vals in experience_results.items():
@@ -316,18 +345,23 @@ class Experiment:
                     metric_name="experience_test_acc",
                     metric_value=ea,
                 )
-
-        # for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
-        #     strat.eval(self.benchmark.test_stream)
-        #     batch_acc = eval_plugin.get_all_metrics()
-        #     print(batch_acc)
-        #     exit()
-        #     batch_t, batch_acc = batch_acc['Top1_Acc_MB/test_phase/test_stream/Task000']
-        #     for idx, ba in enumerate(batch_acc):
-        #         self.add_batch_metric_value(model_name=strat_name,
-        #                                     trial_num=idx,
-        #                                     metric_name="batch_test_acc",
-        #                                     metric_value=ba)
+                
+        # # Record performance on an ACTUAL unordered test set to validate other test data
+        # all_ds = []
+        # for experience in self.benchmark.test_stream:
+        #     ds = experience.dataset
+        #     all_ds.append(ds)
+        # concat_ds = ConcatDataset(all_ds)
+        # concat_loader = DataLoader(concat_ds, batch_size=self.batch_size, shuffle=True)
+        # for images, labels, task in concat_loader:
+            
+        #     for ensemble in self.ensembles:
+        #         test_acc = ensemble.score(
+        #             images, labels, record_pointwise_accs=True
+        #         )
+        #     self.add_batch_metric_value(
+        #         ensemble.name, trial_num, "unordered_test_acc", test_acc
+        #     )
 
         if self.verbose:
             print(self.batch_metric_values)
