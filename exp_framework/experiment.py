@@ -13,6 +13,7 @@ import os
 from .data_utils import Data
 from .data_utils import shuffle_dataset
 import copy
+from avalanche.benchmarks.classic import RotatedMNIST, SplitMNIST
 
 
 class Experiment:
@@ -24,7 +25,8 @@ class Experiment:
         self,
         n_trials,
         ensembles,
-        benchmark,
+        # benchmark,
+        dataset_name,
         strategies_to_evaluate=None,
         seed=None,
         verbose=False,
@@ -32,7 +34,11 @@ class Experiment:
         self.window_size = 10
         self.batch_size = 128
 
-        self.benchmark = benchmark
+        if dataset_name not in ["SplitMNIST", "RotatedMNIST"]:
+            raise ValueError("Invalid dataset name")
+
+        self.benchmark_name = dataset_name
+        self.benchmark = None
 
         # if (not strategies_to_evaluate) or len(strategies_to_evaluate) == 0:
         #     strategies_to_evaluate = {}
@@ -105,6 +111,17 @@ class Experiment:
         # 2 - Incrementally train each ensemble, as applicable.
         # Over each increment of data, train each ensemble on that increment.
         # The idea is that there's e.g. one ensemble delegating, one not delegating, etc.
+        print("Creating dataset")
+        if self.benchmark_name == "SplitMNIST":
+            self.benchmark = SplitMNIST(
+                n_experiences=5, fixed_class_order=list(range(10)), seed=trial_num * 42
+            )
+        elif self.benchmark_name == "RotatedMNIST":
+            self.benchmark = RotatedMNIST(n_experiences=5, seed=trial_num * 42)
+
+        else:
+            raise ValueError("Invalid benchmark name")
+
         batch_idx = 0
         current_digit_group = 0
         experience_results = {ensemble.name: [] for ensemble in self.ensembles}
@@ -120,7 +137,7 @@ class Experiment:
             )
 
             inner_loop_results = {ensemble.name: [] for ensemble in self.ensembles}
-            
+
             # Run one epoch
             for images, labels, task in my_dataloader:
                 # print("images", images)
@@ -180,7 +197,6 @@ class Experiment:
             for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
                 print(f"Training: {strat_name}!")
                 strat.train(experience)
-            
 
             for ensemble in self.ensembles:
                 experience_results[ensemble.name].append(
@@ -201,8 +217,6 @@ class Experiment:
                     metric_name="experience_train_acc",
                     metric_value=val,
                 )
-
-
 
         # Record training metrics for avalanche strategies
         for strat_name, (strat, eval_plugin) in strategies_to_compare.items():
@@ -345,7 +359,7 @@ class Experiment:
                     metric_name="experience_test_acc",
                     metric_value=ea,
                 )
-                
+
         # # Record performance on an ACTUAL unordered test set to validate other test data
         # all_ds = []
         # for experience in self.benchmark.test_stream:
@@ -354,7 +368,7 @@ class Experiment:
         # concat_ds = ConcatDataset(all_ds)
         # concat_loader = DataLoader(concat_ds, batch_size=self.batch_size, shuffle=True)
         # for images, labels, task in concat_loader:
-            
+
         #     for ensemble in self.ensembles:
         #         test_acc = ensemble.score(
         #             images, labels, record_pointwise_accs=True
